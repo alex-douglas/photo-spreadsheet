@@ -1,0 +1,101 @@
+This is a fantastic weekend build. The problem you’re solving is a massive pain point—people are constantly fighting with raw OCR text when what they really need is structured data. The UI mockup is incredibly clean and definitely nails that "productive, modern SaaS" vibe outlined in your vision doc.
+
+To maximize your organic traffic, we need to shift the copy slightly. Right now, your copy is highly descriptive of *what* the app does, but it needs to match the exact *long-tail search queries* people type into Google when they are frustrated. People don't search for "AI document extraction"; they search for "convert picture of table to excel" or "scan receipt to CSV."
+
+Here is a comprehensive SEO strategy, copy refresh, and code-level recommendations for your Next.js app.
+
+### 1\. Domain Name Ideas (.com)
+
+Exact Match Domains (like `imagetoexcel.com`) aren't as powerful as they used to be, but having a relevant keyword helps user trust. Avoid using trademarked terms like "Excel" or "Google Sheets" in the URL to prevent future headaches.
+
+  * **https://www.google.com/search?q=SnapToSheet.com** (Strongest action + destination)
+  * **ImageToCSV.com** (Highly search-aligned)
+  * **GridSnap.com** (From your vision doc—very brandable)
+  * **https://www.google.com/search?q=TableExtract.com** (Very clear on the value prop)
+  * **https://www.google.com/search?q=ParsePhoto.com** (A bit more technical, but memorable)
+
+-----
+
+### 2\. SEO-Optimized Site Copy
+
+Here is updated copy for your UI components, mapping directly to high-volume search intents.
+
+**Hero Section**
+
+  * **Current H1:** Photo → spreadsheet data
+  * **Optimized H1:** Convert Any Image or PDF to a Spreadsheet Instantly
+  * **Current Subhead:** Snap a photo of any document and get clean, structured data you can edit and export instantly.
+  * **Optimized Subhead:** Extract tables, receipts, W-2s, and invoices from photos. Export clean, structured data directly to CSV, Excel, or Google Sheets in seconds.
+
+**Dropzone Area**
+
+  * **Optimized Main Text:** Drop your image or PDF here
+  * **Optimized Sub-text:** or click to upload a file (JPG, PNG, WebP, PDF). Paste from clipboard supported.
+
+**"Works With Any Document" Section (Feature Grid)**
+*This is your golden opportunity to capture specific search queries. Let's optimize the titles and descriptions.*
+
+  * **Receipts:** Turn pictures of receipts into expense spreadsheets. Extracts line items, taxes, and totals.
+  * **W-2 Forms:** Scan W-2s to spreadsheets. Automatically categorizes wages, withholdings, and employer data for tax season.
+  * **Invoices:** Automate invoice data entry. Pulls vendor details, due dates, and line items into structured formats.
+  * **Business Cards:** Digitize business cards to CSV. Instantly parse names, emails, and phone numbers for your CRM.
+  * **Data Tables:** Convert image to table. Perfect for screenshots, price lists, or printed reports.
+  * **Handwritten Notes:** Transcribe handwritten lists and inventories directly into editable spreadsheet rows.
+
+**"How it Works" Section**
+
+  * **Step 1:** Upload or Paste. Drop a screenshot, upload a scanned PDF, or snap a photo with your mobile camera.
+  * **Step 2:** AI Data Extraction. Our Gemini-powered AI identifies the document type and perfectly formats the tabular data.
+  * **Step 3:** Edit & Export. Review the structured data, then download as a CSV, JSON, or copy directly to Excel and Google Sheets.
+
+-----
+
+### 3\. Code & Metadata Optimizations (Next.js 15)
+
+Since you are using the Next.js App Router, you should heavily utilize the built-in Metadata API to tell search engines exactly what this page is.
+
+**A. The `layout.tsx` Metadata Object**
+Add this to your root layout to capture the main search intents:
+
+```typescript
+export const metadata: Metadata = {
+  title: 'Convert Image to Spreadsheet | Extract Tables from Photos & PDFs',
+  description: 'Instantly convert photos, screenshots, and PDFs into editable Excel, CSV, or Google Sheets data. Perfect for receipts, tables, and W-2s.',
+  keywords: ['image to excel', 'picture to spreadsheet', 'convert image to table', 'scan receipt to csv', 'pdf table extractor', 'OCR to spreadsheet'],
+  openGraph: {
+    title: 'Convert Image to Spreadsheet Instantly',
+    description: 'Turn photos and PDFs into clean, editable tabular data in seconds.',
+    type: 'website',
+  },
+};
+```
+
+**B. Semantic HTML Structuring**
+Ensure your Next.js components render strict semantic HTML.
+
+  * Your Hero text **must** be an `<h1>`.
+  * The titles in your Feature Grid ("Receipts", "W-2 Forms") should be `<h2>` or `<h3>` tags. Search engines use these to understand the sub-topics your tool handles.
+
+**C. Schema.org Markup (JSON-LD)**
+Because you are building a software tool, you should include `SoftwareApplication` schema markup in your `page.tsx`. This helps Google understand that this isn't a blog post, it's a web app.
+
+```html
+<script
+  type="application/ld+json"
+  dangerouslySetInnerHTML={{
+    __html: JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "SnapGrid",
+      "applicationCategory": "BusinessApplication",
+      "description": "An AI-powered web tool that converts images, photos, and PDFs into editable spreadsheet data and CSV files.",
+      "operatingSystem": "All"
+    })
+  }}
+/>
+```
+
+**D. Hidden SEO Content (Optional but recommended)**
+If you want to rank for "how to convert an image to Excel," consider adding a small, text-based FAQ section at the very bottom of the page (below the footer). This allows you to naturally write out long-form answers to common Google queries without cluttering your clean SaaS UI.
+
+Would you like me to draft that short SEO FAQ section to place at the bottom of the page?

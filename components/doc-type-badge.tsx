@@ -1,14 +1,19 @@
 "use client";
 
 import { DOC_TYPE_LABELS, type DocType } from "@/lib/extraction-prompts";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
-const COLORS: Record<DocType, string> = {
-  w2: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
-  receipt: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-  invoice: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
-  business_card: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  table: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300",
-  other: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
+const STYLES: Record<DocType, string> = {
+  w2: "border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-200",
+  receipt:
+    "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
+  invoice:
+    "border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
+  business_card:
+    "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200",
+  table: "border-cyan-200 bg-cyan-50 text-cyan-900 dark:border-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-200",
+  other: "border-border bg-muted text-foreground",
 };
 
 const ICONS: Record<DocType, string> = {
@@ -22,11 +27,9 @@ const ICONS: Record<DocType, string> = {
 
 export function DocTypeBadge({ type }: { type: DocType }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${COLORS[type]}`}
-    >
-      <span>{ICONS[type]}</span>
+    <Badge variant="outline" className={cn("h-7 gap-1.5 rounded-full px-3 text-sm font-medium", STYLES[type])}>
+      <span aria-hidden>{ICONS[type]}</span>
       {DOC_TYPE_LABELS[type]}
-    </span>
+    </Badge>
   );
 }

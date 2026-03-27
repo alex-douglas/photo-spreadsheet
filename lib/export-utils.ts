@@ -23,6 +23,48 @@ export function exportCSV(fields: Record<string, string>, table?: string[][]): s
   return parts.join("\n");
 }
 
+export interface ExportPageSlice {
+  fields: Record<string, string>;
+  table?: string[][];
+}
+
+/** One CSV/JSON/clipboard payload for all PDF pages (or any ordered slices). */
+export function exportCSVFromPageSlices(slices: ExportPageSlice[]): string {
+  if (slices.length === 0) return "";
+  if (slices.length === 1) return exportCSV(slices[0]!.fields, slices[0]!.table);
+  return slices
+    .map((slice, i) => {
+      const labelRow = `"Section","Page ${i + 1}"`;
+      return [labelRow, "", exportCSV(slice.fields, slice.table)].join("\n");
+    })
+    .join("\n\n");
+}
+
+export function exportJSONFromPageSlices(slices: ExportPageSlice[]): string {
+  return JSON.stringify(
+    slices.length > 1
+      ? {
+          pages: slices.map((slice, i) => ({
+            page: i + 1,
+            fields: slice.fields,
+            ...(slice.table?.length ? { table: slice.table } : {}),
+          })),
+        }
+      : { fields: slices[0]?.fields ?? {}, ...(slices[0]?.table ? { table: slices[0].table } : {}) },
+    null,
+    2
+  );
+}
+
+export function exportClipboardFromPageSlices(slices: ExportPageSlice[]): string {
+  return slices
+    .map((slice, i) => {
+      const label = slices.length > 1 ? `Page ${i + 1}\n` : "";
+      return label + exportClipboard(slice.fields, slice.table);
+    })
+    .join("\n\n");
+}
+
 export function exportJSON(fields: Record<string, string>, table?: string[][]): string {
   return JSON.stringify({ fields, ...(table ? { table } : {}) }, null, 2);
 }

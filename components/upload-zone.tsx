@@ -1,165 +1,400 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import Image from "next/image";
+import { FileText, Plus, Upload, X } from "lucide-react";
 
-interface UploadZoneProps {
-  onUpload: (base64: string) => void;
-  disabled?: boolean;
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+const MAX_STAGED = 15;
+const TILE_W = "w-[9.5rem] sm:w-40";
+const TILE_H = "h-44 sm:h-48";
+
+export interface StagedUploadItem {
+  id: string;
+  dataUrl: string;
+  isPdf: boolean;
+  pageCount: number | null;
+  fileName: string;
 }
 
-export function UploadZone({ onUpload, disabled }: UploadZoneProps) {
+interface UploadZoneProps {
+  /** Run when user clicks Analyze now. Return true if batch finished and staged files should clear. */
+  onAnalyzeItems: (items: StagedUploadItem[]) => Promise<boolean>;
+  disabled?: boolean;
+  /** Fires when staged file count changes (for hiding marketing sections). */
+  onStagedChange?: (hasStagedFiles: boolean) => void;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Could not read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function fetchPdfPageCount(dataUrl: string): Promise<number> {
+  try {
+    const res = await fetch("/api/pdf-pages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataUrl }),
+    });
+    const d = (await res.json()) as { pageCount?: number };
+    return typeof d.pageCount === "number" ? d.pageCount : 1;
+  } catch {
+    return 1;
+  }
+}
+
+function isAllowedFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
+  const isImage =
+    file.type.startsWith("image/") || name.endsWith(".heic") || name.endsWith(".heif");
+  return isPdf || isImage;
+}
+
+export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZoneProps) {
+  const [staged, setStaged] = useState<StagedUploadItem[]>([]);
+  const stagedRef = useRef(staged);
+  stagedRef.current = staged;
   const [dragActive, setDragActive] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [analyzeBusy, setAnalyzeBusy] = useState(false);
+  const [addingFiles, setAddingFiles] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  const galleryInputId = useId();
 
-  const processFile = useCallback(
-    (file: File) => {
-      if (!file.type.startsWith("image/") && !file.name.toLowerCase().endsWith(".heic")) {
-        alert("Please upload an image file (JPG, PNG, WebP, or HEIC).");
+  useEffect(() => {
+    onStagedChange?.(staged.length > 0);
+  }, [staged.length, onStagedChange]);
+
+  const ingestFiles = useCallback(async (files: File[]) => {
+    const valid = files.filter((f) => {
+      if (!isAllowedFile(f)) return false;
+      if (f.size > 10 * 1024 * 1024) return false;
+      return true;
+    });
+    if (valid.length === 0) {
+      if (files.length > 0) {
+        alert("Use images (JPG, PNG, WebP, HEIC…) or PDFs under 10MB each.");
+      }
+      return;
+    }
+
+    setAddingFiles(true);
+    try {
+      const room = Math.max(0, MAX_STAGED - stagedRef.current.length);
+      if (room <= 0) return;
+
+      const built: StagedUploadItem[] = [];
+      for (const file of valid.slice(0, room)) {
+        const dataUrl = await readFileAsDataUrl(file);
+        const name = file.name.toLowerCase();
+        const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
+        const pageCount = isPdf ? await fetchPdfPageCount(dataUrl) : null;
+        built.push({
+          id:
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `f-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          dataUrl,
+          isPdf,
+          pageCount,
+          fileName: file.name || (isPdf ? "document.pdf" : "image"),
+        });
+      }
+      if (built.length) {
+        setStaged((prev) => [...prev, ...built]);
+      }
+    } finally {
+      setAddingFiles(false);
+      if (inputRef.current) inputRef.current.value = "";
+      if (cameraRef.current) cameraRef.current.value = "";
+    }
+  }, []);
+
+  const removeStaged = useCallback((id: string) => {
+    setStaged((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
+  const handleAnalyze = useCallback(async () => {
+    if (!staged.length || disabled || analyzeBusy) return;
+    setAnalyzeBusy(true);
+    try {
+      const ok = await onAnalyzeItems(staged);
+      if (ok) setStaged([]);
+    } finally {
+      setAnalyzeBusy(false);
+    }
+  }, [staged, disabled, analyzeBusy, onAnalyzeItems]);
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      if (disabled || addingFiles) return;
+      const a = document.activeElement;
+      if (
+        a instanceof HTMLInputElement ||
+        a instanceof HTMLTextAreaElement ||
+        (a instanceof HTMLElement && a.isContentEditable)
+      ) {
         return;
       }
-      if (file.size > 10 * 1024 * 1024) {
-        alert("File is too large. Please use an image under 10MB.");
-        return;
+      const items = e.clipboardData?.items;
+      if (!items?.length) return;
+      for (const item of items) {
+        if (item.kind !== "file") continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        if (isAllowedFile(file)) {
+          e.preventDefault();
+          void ingestFiles([file]);
+          return;
+        }
       }
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        setPreview(result);
-        onUpload(result);
-      };
-      reader.readAsDataURL(file);
-    },
-    [onUpload]
-  );
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [disabled, addingFiles, ingestFiles]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       setDragActive(false);
-      const file = e.dataTransfer.files?.[0];
-      if (file) processFile(file);
+      if (disabled || addingFiles) return;
+      const list = e.dataTransfer.files;
+      if (!list?.length) return;
+      void ingestFiles(Array.from(list));
     },
-    [processFile]
+    [disabled, addingFiles, ingestFiles]
   );
 
-  const handleChange = useCallback(
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      if (!disabled && !addingFiles) setDragActive(true);
+    },
+    [disabled, addingFiles]
+  );
+
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      if (!disabled && !addingFiles) setDragActive(true);
+    },
+    [disabled, addingFiles]
+  );
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const next = e.relatedTarget as Node | null;
+    if (next && e.currentTarget.contains(next)) return;
+    setDragActive(false);
+  }, []);
+
+  const handleFileInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) processFile(file);
+      const list = e.target.files;
+      if (!list?.length) return;
+      void ingestFiles(Array.from(list));
     },
-    [processFile]
+    [ingestFiles]
   );
 
-  const reset = () => {
-    setPreview(null);
-    if (inputRef.current) inputRef.current.value = "";
-    if (cameraRef.current) cameraRef.current.value = "";
-  };
+  const placeholderTileClass = cn(
+    TILE_W,
+    TILE_H,
+    "relative flex shrink-0 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed transition-colors",
+    dragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25 bg-muted/20 hover:border-primary/40 hover:bg-muted/35",
+    (disabled || addingFiles) && "pointer-events-none opacity-50"
+  );
 
-  if (preview) {
-    return (
-      <div className="relative rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-        <img
-          src={preview}
-          alt="Uploaded document"
-          className="w-full max-h-64 object-contain"
-        />
-        {!disabled && (
-          <button
-            onClick={reset}
-            className="absolute top-3 right-3 rounded-full bg-black/60 text-white px-3 py-1 text-sm hover:bg-black/80 transition-colors"
-          >
-            ✕ Clear
-          </button>
-        )}
-      </div>
-    );
-  }
+  const emptyDropZoneClass = cn(
+    "flex w-full cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed p-8 text-center transition-all duration-200 sm:p-12",
+    dragActive
+      ? "border-primary bg-primary/5 scale-[1.01]"
+      : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/40",
+    disabled && "pointer-events-none opacity-50"
+  );
 
   return (
-    <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragActive(true);
-      }}
-      onDragLeave={() => setDragActive(false)}
-      onDrop={handleDrop}
-      onClick={() => inputRef.current?.click()}
-      className={`
-        relative cursor-pointer rounded-2xl border-2 border-dashed p-8 sm:p-12 text-center transition-all duration-200
-        ${
-          dragActive
-            ? "border-green-500 bg-green-50 dark:bg-green-900/20 scale-[1.02]"
-            : "border-gray-300 dark:border-gray-600 hover:border-green-400 hover:bg-gray-50 dark:hover:bg-gray-800/50"
-        }
-        ${disabled ? "opacity-50 pointer-events-none" : ""}
-      `}
-    >
+    <div className={staged.length === 0 ? "space-y-3" : "space-y-5"}>
+      {staged.length === 0 ? (
+        <>
+          <div
+            className="w-full"
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {disabled ? (
+              <div className={emptyDropZoneClass}>
+                <UploadZoneInner dragActive={dragActive} />
+              </div>
+            ) : (
+              <label htmlFor={galleryInputId} className={emptyDropZoneClass}>
+                <UploadZoneInner dragActive={dragActive} />
+              </label>
+            )}
+          </div>
+
+          <div className="flex justify-center sm:hidden">
+            <Button
+              type="button"
+              variant="default"
+              size="default"
+              className="gap-2"
+              disabled={disabled || addingFiles}
+              onClick={() => cameraRef.current?.click()}
+            >
+              <Upload className="size-4" aria-hidden />
+              Take photo
+            </Button>
+          </div>
+
+          <p className="text-center text-xs text-muted-foreground">
+            JPG, PNG, WebP, HEIC, PDF · Max 10MB · Paste with Ctrl+V (⌘V) · 1 credit per image; PDFs use 1 credit per
+            page
+          </p>
+        </>
+      ) : (
+        <>
+          <div
+            className="flex flex-wrap items-start justify-center gap-3"
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {staged.map((item) => (
+              <div
+                key={item.id}
+                className={cn(
+                  TILE_W,
+                  TILE_H,
+                  "relative shrink-0 overflow-hidden rounded-xl border border-border bg-muted/30"
+                )}
+              >
+                {item.isPdf ? (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3">
+                    <FileText className="size-12 text-muted-foreground" strokeWidth={1.25} aria-hidden />
+                    <span className="line-clamp-2 px-1 text-center text-[0.65rem] font-medium leading-tight text-muted-foreground">
+                      {item.fileName}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="relative h-full w-full">
+                    <Image
+                      src={item.dataUrl}
+                      alt={item.fileName}
+                      fill
+                      className="object-contain object-center"
+                      unoptimized
+                      sizes="160px"
+                    />
+                  </div>
+                )}
+                {!disabled && (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={`Remove ${item.fileName}`}
+                    onClick={() => removeStaged(item.id)}
+                  >
+                    <X className="size-3.5" strokeWidth={2.5} />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {staged.length < MAX_STAGED && (
+              <label htmlFor={galleryInputId} className={cn(placeholderTileClass, "cursor-pointer")}>
+                <Plus className="size-8 text-muted-foreground" strokeWidth={1.5} aria-hidden />
+                <Upload className="size-5 text-muted-foreground/80" aria-hidden />
+                <span className="sr-only">Add files</span>
+              </label>
+            )}
+          </div>
+
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-center">
+            <Button
+              type="button"
+              size="lg"
+              className="w-full sm:w-auto sm:min-w-[12rem]"
+              disabled={disabled || analyzeBusy || addingFiles}
+              onClick={() => void handleAnalyze()}
+            >
+              {analyzeBusy || addingFiles ? "Working…" : "Analyze now"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="default"
+              className="gap-2 sm:hidden"
+              disabled={disabled || addingFiles}
+              onClick={() => cameraRef.current?.click()}
+            >
+              <Upload className="size-4" aria-hidden />
+              Take photo
+            </Button>
+          </div>
+        </>
+      )}
+
       <input
+        id={galleryInputId}
         ref={inputRef}
         type="file"
-        accept="image/*"
-        onChange={handleChange}
-        className="hidden"
+        accept="image/*,application/pdf,.pdf"
+        multiple
+        onChange={handleFileInputChange}
+        disabled={disabled || addingFiles}
+        className="sr-only pointer-events-none"
+        tabIndex={-1}
       />
       <input
         ref={cameraRef}
         type="file"
         accept="image/*"
         capture="environment"
-        onChange={handleChange}
-        className="hidden"
+        onChange={handleFileInputChange}
+        disabled={disabled || addingFiles}
+        className="sr-only pointer-events-none"
+        tabIndex={-1}
       />
+    </div>
+  );
+}
 
-      <div className="flex flex-col items-center gap-3">
-        <div className="rounded-full bg-green-100 dark:bg-green-900/30 p-4">
-          <svg
-            className="h-8 w-8 text-green-600 dark:text-green-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
-            />
-          </svg>
-        </div>
-
-        <div>
-          <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            Drop your document here
-          </p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            or tap to browse files
-          </p>
-        </div>
-
-        {/* Mobile camera button */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            cameraRef.current?.click();
-          }}
-          className="mt-2 inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-green-700 transition-colors sm:hidden"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
-          </svg>
-          Take Photo
-        </button>
-
-        <p className="text-xs text-gray-400 dark:text-gray-500">
-          JPG, PNG, WebP, HEIC • Max 10MB
+function UploadZoneInner({ dragActive }: { dragActive: boolean }) {
+  return (
+    <>
+      <div
+        className={cn(
+          "rounded-full p-4",
+          dragActive ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+        )}
+      >
+        <Upload className="size-8 text-current" strokeWidth={1.5} aria-hidden />
+      </div>
+      <div>
+        <p className="text-lg font-semibold text-foreground">Drop your image or PDF here</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          or click to upload (JPG, PNG, WebP, HEIC, PDF). Paste from clipboard with Ctrl+V or ⌘V anywhere on this
+          page.
         </p>
       </div>
-    </div>
+    </>
   );
 }

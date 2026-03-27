@@ -1,208 +1,290 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { UploadZone } from "@/components/upload-zone";
-import { Processing } from "@/components/processing";
-import { ResultsTable } from "@/components/results-table";
-import type { DocType } from "@/lib/extraction-prompts";
 
-interface ExtractionResult {
-  type: DocType;
-  fields: Record<string, string>;
-  table?: string[][];
-}
+import { SeoFaqSection } from "@/components/seo-faq-section";
+import { SiteShell } from "@/components/site-shell";
+import { UploadZone, type StagedUploadItem } from "@/components/upload-zone";
+import { Processing } from "@/components/processing";
+import { useCredits } from "@/components/credits-provider";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { SITE_NAME, SITE_URL } from "@/lib/brand";
+import { appendHistory } from "@/lib/history-storage";
 
 const USE_CASES = [
-  { icon: "🧾", title: "Receipts", desc: "Line items, totals, tax — all extracted" },
-  { icon: "📄", title: "W-2 Forms", desc: "Wages, withholdings, employer info" },
-  { icon: "📑", title: "Invoices", desc: "Vendor details, line items, due dates" },
-  { icon: "💼", title: "Business Cards", desc: "Contact info ready for your CRM" },
-  { icon: "📊", title: "Tables", desc: "Any tabular data from photos" },
-  { icon: "📋", title: "Any Document", desc: "AI auto-detects the document type" },
-];
+  {
+    icon: "🧾",
+    title: "Receipts",
+    desc: "Turn pictures of receipts into expense spreadsheets. Extracts line items, taxes, and totals.",
+  },
+  {
+    icon: "📄",
+    title: "W-2 Forms",
+    desc: "Scan W-2s to spreadsheets. Categorizes wages, withholdings, and employer data for tax season.",
+  },
+  {
+    icon: "📑",
+    title: "Invoices",
+    desc: "Automate invoice data entry. Pulls vendor details, due dates, and line items into structured formats.",
+  },
+  {
+    icon: "💼",
+    title: "Business Cards",
+    desc: "Digitize business cards to CSV. Parse names, emails, and phone numbers for your CRM.",
+  },
+  {
+    icon: "📊",
+    title: "Data Tables",
+    desc: "Convert image to table. Perfect for screenshots, price lists, or printed reports.",
+  },
+  {
+    icon: "📝",
+    title: "Handwritten Notes",
+    desc: "Transcribe handwritten lists and inventories into editable spreadsheet rows.",
+  },
+] as const;
 
-export default function Home() {
-  const [state, setState] = useState<"idle" | "processing" | "done" | "error">("idle");
-  const [result, setResult] = useState<ExtractionResult | null>(null);
-  const [error, setError] = useState<string>("");
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  name: SITE_NAME,
+  url: SITE_URL,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Any",
+  description:
+    "An AI-powered web app that converts images, photos, and PDFs into editable spreadsheet data and CSV files. Ideal for receipts, tables, W-2s, and invoices.",
+} as const;
 
-  const handleUpload = async (base64: string) => {
+function creditCostForItem(item: StagedUploadItem): number {
+  if (item.isPdf) return Math.max(1, item.pageCount ?? 1);
+  return 1;
+}
+
+function docLabelFromFileName(fileName: string): string {
+  const base = fileName.replace(/\.[^/.]+$/, "").trim();
+  return (base.length > 0 ? base : fileName).slice(0, 80);
+}
+
+export default function HomePage() {
+  const router = useRouter();
+  const { credits, deviceId, linkedEmail, applyExtractResult, openBuyCredits } = useCredits();
+  const [state, setState] = useState<"idle" | "processing" | "error">("idle");
+  const [error, setError] = useState("");
+  const [scanKey, setScanKey] = useState(0);
+  const [hasStagedFile, setHasStagedFile] = useState(false);
+
+  async function handleAnalyzeItems(items: StagedUploadItem[]): Promise<boolean> {
+    const totalCost = items.reduce((sum, item) => sum + creditCostForItem(item), 0);
+    if (credits < totalCost) {
+      openBuyCredits(
+        `These ${items.length} file(s) need ${totalCost} credits total. You have ${credits}. Buy more or link an email with a balance.`
+      );
+      return false;
+    }
+
     setState("processing");
     setError("");
-    setResult(null);
 
     try {
-      const res = await fetch("/api/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64 }),
-      });
+      let lastEntryId: string | null = null;
+      const batchGroupId = items.length > 1 ? crypto.randomUUID() : undefined;
 
-      const data = await res.json();
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]!;
+        const cost = creditCostForItem(item);
+        const res = await fetch("/api/extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            image: item.dataUrl,
+            deviceId,
+            linkedEmail,
+          }),
+        });
 
-      if (!res.ok) {
-        throw new Error(data.error || "Extraction failed");
+        const data = await res.json();
+
+        if (res.status === 402) {
+          openBuyCredits(
+            `Not enough credits to continue (need ${data.creditCost ?? cost}, have ${data.creditsAvailable ?? credits}). Earlier files were already processed.`
+          );
+          setState("idle");
+          return false;
+        }
+
+        if (!res.ok) {
+          throw new Error(data.error || `Extraction failed for “${item.fileName}”`);
+        }
+
+        applyExtractResult({
+          creditCost: data.creditCost ?? cost,
+          creditsRemaining: data.creditsRemaining,
+          creditsSource: data.creditsSource ?? "local",
+        });
+
+        const pages =
+          Array.isArray(data.pages) && data.pages.length > 1 ? data.pages : undefined;
+
+        const entry = appendHistory({
+          docLabel: docLabelFromFileName(item.fileName),
+          type: data.type,
+          fields: data.fields,
+          table: pages ? undefined : data.table,
+          pages,
+          meta: {
+            pdfPageCount: data.meta?.pdfPageCount,
+            multiPagePdf: data.meta?.multiPagePdf,
+            creditCost: data.creditCost,
+            ...(batchGroupId
+              ? { batchGroupId, batchIndex: i, batchSize: items.length }
+              : {}),
+          },
+        });
+        lastEntryId = entry.id;
       }
 
-      setResult(data);
-      setState("done");
+      if (lastEntryId) {
+        setState("idle");
+        router.push(`/extraction/${lastEntryId}`);
+      }
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setState("error");
+      return false;
     }
-  };
+  }
 
-  const handleReset = () => {
+  function handleReset() {
     setState("idle");
-    setResult(null);
     setError("");
-  };
+    setHasStagedFile(false);
+    setScanKey((k) => k + 1);
+  }
+
+  const uploaderDisabled = state === "processing";
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="border-b border-gray-100 dark:border-gray-800">
-        <div className="mx-auto max-w-3xl px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-green-600 flex items-center justify-center text-white font-bold text-sm">
-              PS
-            </div>
-            <span className="font-semibold text-lg">PhotoSheet</span>
-          </div>
-          {state === "done" && (
-            <button
-              onClick={handleReset}
-              className="text-sm text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-medium"
-            >
-              ← New Scan
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 mx-auto max-w-3xl w-full px-4 py-8">
-        {state === "idle" && (
-          <div className="space-y-8">
-            {/* Hero */}
-            <div className="text-center space-y-3">
-              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
-                Photo → Spreadsheet Data
-              </h1>
-              <p className="text-lg text-gray-500 dark:text-gray-400 max-w-xl mx-auto">
-                Snap a photo of any document and get clean, structured data you
-                can edit and export instantly.
-              </p>
-            </div>
-
-            {/* Upload */}
-            <UploadZone onUpload={handleUpload} />
-
-            {/* Use Cases Grid */}
-            <div>
-              <h2 className="text-sm font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4 text-center">
-                Works with any document
-              </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {USE_CASES.map((uc) => (
-                  <div
-                    key={uc.title}
-                    className="rounded-xl border border-gray-100 dark:border-gray-800 p-4 text-center hover:border-green-200 dark:hover:border-green-800 transition-colors"
-                  >
-                    <div className="text-2xl mb-1.5">{uc.icon}</div>
-                    <div className="font-medium text-sm">{uc.title}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {uc.desc}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* How it works */}
-            <div className="rounded-2xl bg-gray-50 dark:bg-gray-900/50 p-6 sm:p-8">
-              <h2 className="text-sm font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4 text-center">
-                How it works
-              </h2>
-              <div className="grid sm:grid-cols-3 gap-6">
-                <div className="text-center">
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 font-bold text-sm mb-2">
-                    1
-                  </div>
-                  <h3 className="font-medium">Upload or Snap</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    Drop an image or take a photo with your phone camera
-                  </p>
-                </div>
-                <div className="text-center">
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 font-bold text-sm mb-2">
-                    2
-                  </div>
-                  <h3 className="font-medium">AI Extracts Data</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    Google Gemini detects the document type and pulls every field
-                  </p>
-                </div>
-                <div className="text-center">
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 font-bold text-sm mb-2">
-                    3
-                  </div>
-                  <h3 className="font-medium">Edit & Export</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    Tweak any value, then download CSV, JSON, or copy to clipboard
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {state === "processing" && (
-          <div className="space-y-6">
-            <UploadZone onUpload={handleUpload} disabled />
-            <Processing />
-          </div>
-        )}
-
-        {state === "done" && result && (
-          <div className="space-y-6">
-            <UploadZone onUpload={handleUpload} disabled />
-            <ResultsTable
-              type={result.type}
-              fields={result.fields}
-              table={result.table}
-            />
-          </div>
-        )}
-
-        {state === "error" && (
-          <div className="space-y-6">
-            <UploadZone onUpload={handleUpload} />
-            <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4 text-center">
-              <p className="text-red-700 dark:text-red-400 font-medium">
-                {error}
-              </p>
-              <button
-                onClick={handleReset}
-                className="mt-3 text-sm text-red-600 dark:text-red-400 underline hover:no-underline"
-              >
-                Try again
-              </button>
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-gray-100 dark:border-gray-800 mt-auto">
-        <div className="mx-auto max-w-3xl px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
-          <p>
-            PhotoSheet — AI-powered document data extraction.
-            <br className="sm:hidden" />{" "}
-            Your images are processed and never stored.
+    <SiteShell>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <main className="mx-auto w-full max-w-3xl flex-1 space-y-10 px-4 py-8">
+        <div className="space-y-3 text-center">
+          <h1 className="text-balance text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+            Convert Any Image or PDF to a Spreadsheet Instantly
+          </h1>
+          <p className="mx-auto max-w-2xl text-pretty text-lg text-muted-foreground">
+            Extract tables, receipts, W-2s, and invoices from photos and PDFs. Export clean, structured data to CSV,
+            Excel, or Google Sheets in seconds.
           </p>
         </div>
-      </footer>
-    </div>
+
+        <div className="space-y-6">
+          <UploadZone
+            key={scanKey}
+            onAnalyzeItems={handleAnalyzeItems}
+            disabled={uploaderDisabled}
+            onStagedChange={setHasStagedFile}
+          />
+
+          {state === "processing" && <Processing />}
+
+          {state === "error" && (
+            <Alert variant="destructive">
+              <AlertTitle>Something went wrong</AlertTitle>
+              <AlertDescription className="space-y-3">
+                <p>{error}</p>
+                <Separator className="bg-destructive/20" />
+                <Button type="button" variant="outline" size="sm" onClick={handleReset}>
+                  Try again
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+
+        {!hasStagedFile && (
+          <section className="space-y-4" aria-labelledby="features-heading">
+            <h2
+              id="features-heading"
+              className="text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+            >
+              Receipts, W-2s, tables &amp; more
+            </h2>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {USE_CASES.map((uc) => (
+                <Card
+                  key={uc.title}
+                  size="sm"
+                  className="py-3 text-center ring-border transition-colors hover:border-primary/30"
+                >
+                  <CardHeader className="px-3 pb-1 pt-0">
+                    <div className="text-2xl" aria-hidden>
+                      {uc.icon}
+                    </div>
+                    <h3 className="font-heading text-sm font-medium leading-snug text-card-foreground">{uc.title}</h3>
+                    <CardDescription className="text-xs">{uc.desc}</CardDescription>
+                  </CardHeader>
+                </Card>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {!hasStagedFile && (
+          <section aria-labelledby="how-heading">
+            <Card className="bg-muted/40 ring-border">
+              <CardHeader className="text-center">
+                <h2
+                  id="how-heading"
+                  className="font-heading text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                >
+                  How it works
+                </h2>
+              </CardHeader>
+              <CardContent className="grid gap-6 sm:grid-cols-3 sm:gap-8">
+                <div className="text-center">
+                  <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+                    1
+                  </div>
+                  <h3 className="font-medium text-foreground">Upload or paste</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Drop a screenshot, upload a scanned PDF, or snap a photo with your phone. Clipboard paste works
+                    too (Ctrl+V / ⌘V).
+                  </p>
+                </div>
+                <div className="text-center">
+                  <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+                    2
+                  </div>
+                  <h3 className="font-medium text-foreground">AI data extraction</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Our Gemini-powered AI identifies the document type and formats tabular data for spreadsheets.
+                  </p>
+                </div>
+                <div className="text-center">
+                  <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+                    3
+                  </div>
+                  <h3 className="font-medium text-foreground">Edit &amp; export</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Review structured fields and tables, then download CSV or JSON, or copy directly into Excel and
+                    Google Sheets.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
+        {!hasStagedFile && <SeoFaqSection />}
+      </main>
+    </SiteShell>
   );
 }

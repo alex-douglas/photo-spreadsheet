@@ -1,0 +1,20 @@
+### SEO-Optimized FAQ Copy
+
+**Q: How do I convert a picture of a table to Excel?**
+**A:** Simply upload your image (JPG, PNG) or snap a photo of the document with your phone. PhotoToSheet automatically detects the rows and columns, extracting the text into an editable format. From there, just click export to download a CSV file that opens perfectly in Excel, Numbers, or Google Sheets.
+
+**Q: Can I scan a receipt and export it to a spreadsheet?**
+**A:** Yes! PhotoToSheet is perfect for expense tracking. Just take a picture of your receipt, and our system will pull out the vendor name, date, individual line items, taxes, and the final total, organizing it all into clean, exportable rows.
+
+**Q: Does this work with handwritten notes or messy lists?**
+**A:** Absolutely. Our system doesn't just read typed text; it understands handwriting too. If you have a handwritten inventory, a paper sign-up sheet, or scribbled notes, just take a clear photo. We'll turn those scribbles into structured data you can edit and save. 
+
+**Q: Can I extract data from a PDF or a computer screenshot?**
+**A:** Yes, you aren't limited to just camera photos. You can upload scanned PDFs (like W-2s or invoices) or simply paste a screenshot of a digital dashboard right from your clipboard. We'll pull the tabular data out so you never have to manually retype it.
+
+**Q: Is my document data secure and private?**
+**A:** Privacy is our priority. Your images and documents are processed instantly to extract the data and are never stored or saved on our servers. Once you close the page or clear your extraction, the data is gone. 
+
+***
+
+**A quick tip for the code:** When you build this in Next.js, wrap the questions in `<h3>` tags and the answers in `<p>` tags within your accordion component. This gives Google's crawlers the perfect semantic structure to potentially use your answers for those "Featured Snippets" at the very top of the search results.

@@ -1,116 +1,214 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
 import { DocTypeBadge } from "./doc-type-badge";
 import { ExportButtons } from "./export-buttons";
 import type { DocType } from "@/lib/extraction-prompts";
+import type { ExportPageSlice } from "@/lib/export-utils";
+import type { HistoryPageSlice } from "@/lib/history-storage";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 interface ResultsTableProps {
   type: DocType;
   fields: Record<string, string>;
   table?: string[][];
+  pages?: HistoryPageSlice[];
 }
 
 function formatFieldName(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function ResultsTable({ type, fields: initialFields, table: initialTable }: ResultsTableProps) {
-  const [fields, setFields] = useState(initialFields);
-  const [table, setTable] = useState(initialTable);
-
-  const updateField = (key: string, value: string) => {
-    setFields((prev) => ({ ...prev, [key]: value }));
+function cloneSlice(slice: HistoryPageSlice): HistoryPageSlice {
+  return {
+    fields: { ...slice.fields },
+    table: slice.table?.map((row) => [...row]),
   };
+}
 
-  const updateCell = (row: number, col: number, value: string) => {
-    setTable((prev) => {
+function FieldsBlock({
+  fields,
+  onUpdateField,
+}: {
+  fields: Record<string, string>;
+  onUpdateField: (key: string, value: string) => void;
+}) {
+  if (Object.keys(fields).length === 0) return null;
+  return (
+    <Card className="gap-0 py-0 ring-border">
+      <CardHeader className="border-b border-border px-4 py-3">
+        <CardTitle className="text-sm font-semibold">Extracted fields</CardTitle>
+      </CardHeader>
+      <CardContent className="divide-y divide-border px-0 py-0">
+        {Object.entries(fields).map(([key, value]) => (
+          <div
+            key={key}
+            className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4"
+          >
+            <Label
+              htmlFor={`field-${key}`}
+              className="w-full shrink-0 text-sm font-medium text-muted-foreground sm:w-48"
+            >
+              {formatFieldName(key)}
+            </Label>
+            <Input
+              id={`field-${key}`}
+              value={value}
+              onChange={(e) => onUpdateField(key, e.target.value)}
+              className="h-9 flex-1"
+            />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TableBlock({
+  table,
+  onUpdateCell,
+}: {
+  table: string[][];
+  onUpdateCell: (row: number, col: number, value: string) => void;
+}) {
+  if (table.length === 0) return null;
+  const bodyRows = table.length > 1 ? table.slice(1) : [];
+  return (
+    <Card className="gap-0 py-0 ring-border">
+      <CardHeader className="border-b border-border px-4 py-3">
+        <CardTitle className="text-sm font-semibold">Line items</CardTitle>
+      </CardHeader>
+      <CardContent className="px-0 pb-0 pt-0">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              {table[0]?.map((header, i) => (
+                <TableHead key={i} className="px-4 font-semibold">
+                  {header}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {bodyRows.map((row, ri) => (
+              <TableRow key={ri}>
+                {row.map((cell, ci) => (
+                  <TableCell key={ci} className="whitespace-normal px-4 py-2">
+                    <Input
+                      value={cell}
+                      onChange={(e) => onUpdateCell(ri + 1, ci, e.target.value)}
+                      className="h-8 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent"
+                    />
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ResultsTable({ type, fields: initialFields, table: initialTable, pages }: ResultsTableProps) {
+  const usePages = pages && pages.length > 1;
+
+  const [slices, setSlices] = useState<HistoryPageSlice[]>(() =>
+    usePages ? pages.map(cloneSlice) : [{ fields: { ...initialFields }, table: initialTable?.map((r) => [...r]) }]
+  );
+
+  const [singleFields, setSingleFields] = useState(initialFields);
+  const [singleTable, setSingleTable] = useState(initialTable);
+
+  const exportSlices: ExportPageSlice[] = useMemo(() => {
+    if (usePages) return slices.map((s) => ({ fields: s.fields, table: s.table }));
+    return [{ fields: singleFields, table: singleTable }];
+  }, [usePages, slices, singleFields, singleTable]);
+
+  function updateField(key: string, value: string) {
+    setSingleFields((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateCell(row: number, col: number, value: string) {
+    setSingleTable((prev) => {
       if (!prev) return prev;
       const next = prev.map((r) => [...r]);
       next[row][col] = value;
       return next;
     });
-  };
+  }
+
+  function updateSliceField(sliceIndex: number, key: string, value: string) {
+    setSlices((prev) => {
+      const next = prev.map((s, i) =>
+        i === sliceIndex ? { ...s, fields: { ...s.fields, [key]: value } } : s
+      );
+      return next;
+    });
+  }
+
+  function updateSliceCell(sliceIndex: number, row: number, col: number, value: string) {
+    setSlices((prev) => {
+      const next = prev.map((s, i) => {
+        if (i !== sliceIndex || !s.table) return s;
+        const t = s.table.map((r) => [...r]);
+        t[row][col] = value;
+        return { ...s, table: t };
+      });
+      return next;
+    });
+  }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div className="animate-in space-y-6 fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <DocTypeBadge type={type} />
-        <ExportButtons fields={fields} table={table} docType={type} />
+        <ExportButtons
+          fields={singleFields}
+          table={singleTable}
+          pageSlices={usePages ? exportSlices : undefined}
+          docType={type}
+        />
       </div>
 
-      {/* Key-Value Fields */}
-      {Object.keys(fields).length > 0 && (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="bg-gray-50 dark:bg-gray-800/50 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-              Extracted Fields
-            </h3>
-          </div>
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
-            {Object.entries(fields).map(([key, value]) => (
-              <div
-                key={key}
-                className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
-              >
-                <label className="text-sm font-medium text-gray-500 dark:text-gray-400 sm:w-48 shrink-0">
-                  {formatFieldName(key)}
-                </label>
-                <input
-                  type="text"
-                  value={value}
-                  onChange={(e) => updateField(key, e.target.value)}
-                  className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 transition-all"
+      {usePages ? (
+        <div className="space-y-10">
+          {slices.map((slice, pageIndex) => (
+            <section key={pageIndex} className="space-y-6 scroll-mt-8">
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                Page {pageIndex + 1}
+              </h2>
+              <FieldsBlock
+                fields={slice.fields}
+                onUpdateField={(key, v) => updateSliceField(pageIndex, key, v)}
+              />
+              {slice.table && slice.table.length > 0 && (
+                <TableBlock
+                  table={slice.table}
+                  onUpdateCell={(row, col, v) => updateSliceCell(pageIndex, row, col, v)}
                 />
-              </div>
-            ))}
-          </div>
+              )}
+            </section>
+          ))}
         </div>
-      )}
-
-      {/* Table Data */}
-      {table && table.length > 0 && (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="bg-gray-50 dark:bg-gray-800/50 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-              Line Items
-            </h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 dark:bg-gray-800/30">
-                  {table[0]?.map((header, i) => (
-                    <th
-                      key={i}
-                      className="px-4 py-2.5 text-left font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700"
-                    >
-                      {header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {table.slice(1).map((row, ri) => (
-                  <tr key={ri} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
-                    {row.map((cell, ci) => (
-                      <td key={ci} className="px-4 py-2">
-                        <input
-                          type="text"
-                          value={cell}
-                          onChange={(e) => updateCell(ri + 1, ci, e.target.value)}
-                          className="w-full bg-transparent border-0 p-0 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-0"
-                        />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      ) : (
+        <>
+          <FieldsBlock fields={singleFields} onUpdateField={updateField} />
+          {singleTable && singleTable.length > 0 && (
+            <TableBlock table={singleTable} onUpdateCell={(row, col, v) => updateCell(row, col, v)} />
+          )}
+        </>
       )}
     </div>
   );
