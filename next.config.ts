@@ -9,15 +9,18 @@ import type { NextConfig } from "next";
  *
  * @see https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
  */
-const allowedDevOrigins =
-  process.env.NEXT_DEV_ALLOWED_HOSTS?.split(",")
+const allowedDevOrigins = [
+  ...(process.env.NEXT_DEV_ALLOWED_HOSTS?.split(",")
     .map((h) => h.trim())
-    .filter(Boolean) ?? [];
+    .filter(Boolean) ?? []),
+  "100.121.162.78",
+  "192.168.1.86",
+];
 
 const nextConfig: NextConfig = {
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
   /** Native/pdfjs deps break when bundled into Route Handlers on some setups. */
-  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "@napi-rs/canvas"],
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "pdf-lib", "@napi-rs/canvas"],
 };
 
 export default nextConfig;

@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/
 import { Separator } from "@/components/ui/separator";
 import { SITE_NAME, SITE_URL } from "@/lib/brand";
 import { appendHistory } from "@/lib/history-storage";
+import { generateId } from "@/lib/uuid";
 
 const USE_CASES = [
   {
@@ -91,7 +92,7 @@ export default function HomePage() {
 
     try {
       let lastEntryId: string | null = null;
-      const batchGroupId = items.length > 1 ? crypto.randomUUID() : undefined;
+      const batchGroupId = items.length > 1 ? generateId("batch") : undefined;
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i]!;
@@ -127,7 +128,7 @@ export default function HomePage() {
         });
 
         const pages =
-          Array.isArray(data.pages) && data.pages.length > 1 ? data.pages : undefined;
+          Array.isArray(data.pages) && data.pages.length > 0 ? data.pages : undefined;
 
         const entry = appendHistory({
           docLabel: docLabelFromFileName(item.fileName),
@@ -253,10 +254,13 @@ export default function HomePage() {
                   <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
                     1
                   </div>
-                  <h3 className="font-medium text-foreground">Upload or paste</h3>
+                  <h3 className="font-medium text-foreground">
+                    <span className="sm:hidden">Upload or snap</span>
+                    <span className="hidden sm:inline">Upload or paste</span>
+                  </h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Drop a screenshot, upload a scanned PDF, or snap a photo with your phone. Clipboard paste works
-                    too (Ctrl+V / ⌘V).
+                    <span className="sm:hidden">Take a photo of a document or upload from your camera roll.</span>
+                    <span className="hidden sm:inline">Drop a screenshot, upload a scanned PDF, or snap a photo with your phone. Clipboard paste works too (Ctrl+V / ⌘V).</span>
                   </p>
                 </div>
                 <div className="text-center">

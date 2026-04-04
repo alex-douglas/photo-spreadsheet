@@ -104,7 +104,7 @@ export default function ExtractionClient({ id }: { id: string }) {
             <AlertTitle>Multi-page PDF</AlertTitle>
             <AlertDescription>
               {entry.meta.pdfPageCount
-                ? `This run used ${entry.meta.pdfPageCount} page(s) and charged ${entry.meta.creditCost ?? entry.meta.pdfPageCount} credit(s). `
+                ? `This run used ${entry.meta.pdfPageCount} pages and charged ${entry.meta.creditCost ?? entry.meta.pdfPageCount} credits. `
                 : ""}
               {entry.pages && entry.pages.length > 1
                 ? "Results are split by page below; exports include every page."

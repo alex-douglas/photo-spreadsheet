@@ -170,10 +170,24 @@ export async function linkEmailWallet(
 export async function addCreditsToEmail(
   supabase: SupabaseClient,
   email: string,
-  delta: number
-): Promise<{ credits: number }> {
+  delta: number,
+  paymentIntentId?: string
+): Promise<{ credits: number; alreadyGranted?: boolean }> {
   if (delta < 1) throw new Error("Invalid credit pack");
   const e = normalizeEmail(email);
+
+  if (paymentIntentId) {
+    const { data: existing } = await supabase
+      .from("credit_grants")
+      .select("id")
+      .eq("payment_intent_id", paymentIntentId)
+      .maybeSingle();
+    if (existing) {
+      const cur = await getEmailCredits(supabase, e);
+      return { credits: cur, alreadyGranted: true };
+    }
+  }
+
   const cur = await getEmailCredits(supabase, e);
   const next = cur + delta;
   const { error } = await supabase.from("email_wallets").upsert(
@@ -185,6 +199,19 @@ export async function addCreditsToEmail(
     { onConflict: "email", ignoreDuplicates: false }
   );
   if (error) throw new Error("Could not add credits");
+
+  if (paymentIntentId) {
+    await supabase.from("credit_grants").insert({
+      payment_intent_id: paymentIntentId,
+      email: e,
+      credits_granted: delta,
+    }).then(({ error: grantErr }) => {
+      if (grantErr && grantErr.code !== "23505") {
+        console.warn("[credits] grant log insert failed", grantErr);
+      }
+    });
+  }
+
   return { credits: next };
 }
 

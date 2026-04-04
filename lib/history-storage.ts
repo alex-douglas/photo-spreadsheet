@@ -1,4 +1,5 @@
 import type { DocType } from "@/lib/extraction-prompts";
+import { generateId } from "@/lib/uuid";
 
 const STORAGE_KEY = "photosheet.history.v1";
 const MAX_ENTRIES = 25;
@@ -105,10 +106,7 @@ export function getBatchNavigation(currentId: string): {
 export function appendHistory(
   entry: Omit<HistoryEntry, "id" | "savedAt" | "docLabel"> & { docLabel?: string }
 ): HistoryEntry {
-  const id =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `h-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const id = generateId("h");
   const savedAt = new Date().toISOString();
   const docLabel = entry.docLabel ?? makeLabel(entry.type, entry.fields);
   const full: HistoryEntry = {
@@ -118,6 +116,7 @@ export function appendHistory(
     type: entry.type,
     fields: entry.fields,
     table: entry.table,
+    pages: entry.pages,
     meta: entry.meta,
   };
   const next = [full, ...readAll()].slice(0, MAX_ENTRIES);

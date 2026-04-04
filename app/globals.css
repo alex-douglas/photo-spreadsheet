@@ -27,6 +27,10 @@
   html {
     @apply font-sans;
   }
+  /* Base UI dialog: closed modal inert layer should not block the page if `inert` hit-testing is incomplete. */
+  [data-base-ui-inert][inert] {
+    pointer-events: none;
+  }
 }
 
 @keyframes fade-in {

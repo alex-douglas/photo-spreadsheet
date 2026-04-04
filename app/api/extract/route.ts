@@ -9,9 +9,10 @@ import {
 } from "@/lib/credits-server";
 import {
   CLASSIFICATION_PROMPT,
+  EXTRACTION_PROMPTS,
   DocType,
-  getExtractionUserPrompt,
 } from "@/lib/extraction-prompts";
+import { splitPdfPages } from "@/lib/pdf-split";
 
 const VALID_TYPES: DocType[] = [
   "w2",
@@ -106,6 +107,22 @@ export async function POST(req: NextRequest) {
 
     const ai = getGemini();
 
+    let classifyMime = mimeType;
+    let classifyData = base64Data;
+
+    if (pdfPageCount && pdfPageCount > 1) {
+      try {
+        const { splitPdfPages: split } = await import("@/lib/pdf-split");
+        const pages = await split(Buffer.from(base64Data, "base64"));
+        if (pages.length > 0) {
+          classifyMime = "application/pdf";
+          classifyData = pages[0]!.toString("base64");
+        }
+      } catch (e) {
+        console.warn("[extract] could not split PDF for classification, using full doc", e);
+      }
+    }
+
     const classifyResult = await ai.models.generateContent({
       model: "gemini-3.1-flash-lite-preview",
       contents: [
@@ -113,59 +130,35 @@ export async function POST(req: NextRequest) {
           role: "user",
           parts: [
             { text: CLASSIFICATION_PROMPT },
-            { inlineData: { mimeType, data: base64Data } },
+            { inlineData: { mimeType: classifyMime, data: classifyData } },
           ],
         },
       ],
     });
 
-    const rawType = (classifyResult.text ?? "other").trim().toLowerCase().replace(/[^a-z_]/g, "");
+    const rawType = (classifyResult.text ?? "other").trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
     const docType: DocType = VALID_TYPES.includes(rawType as DocType)
       ? (rawType as DocType)
       : "other";
 
     console.info("[extract] classified document type", {
+      rawClassification: classifyResult.text?.trim(),
+      rawType,
       docType,
       mimeType,
       pdfPageCount,
       creditCost,
     });
 
-    const extractionPrompt = getExtractionUserPrompt(docType, pdfPageCount);
-
-    const extractResult = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite-preview",
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: extractionPrompt },
-            { inlineData: { mimeType, data: base64Data } },
-          ],
-        },
-      ],
-    });
-
-    const extractText = extractResult.text ?? "{}";
-
-    type ParsedPage = {
-      page_number?: number;
-      fields?: Record<string, string>;
-      table?: string[][];
-    };
-    let parsed: {
-      fields?: Record<string, string>;
-      table?: string[][];
-      pages?: ParsedPage[];
-    };
-    try {
-      const jsonMatch = extractText.match(/```(?:json)?\s*([\s\S]*?)```/);
-      const jsonStr = jsonMatch ? jsonMatch[1].trim() : extractText.trim();
-      parsed = JSON.parse(jsonStr);
-    } catch {
-      parsed = {
-        fields: { raw_text: extractText },
-      };
+    function parseExtractJson(text: string): { fields: Record<string, string>; table?: string[][] } {
+      try {
+        const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+        const jsonStr = jsonMatch ? jsonMatch[1].trim() : text.trim();
+        const obj = JSON.parse(jsonStr);
+        return { fields: obj.fields ?? {}, table: obj.table };
+      } catch {
+        return { fields: { raw_text: text } };
+      }
     }
 
     function maskW2Ssn(fields: Record<string, string>) {
@@ -174,48 +167,66 @@ export async function POST(req: NextRequest) {
       if (ssn.length >= 4) fields.employee_ssn = `***-**-${ssn.slice(-4)}`;
     }
 
-    const rawPages = Array.isArray(parsed.pages) ? parsed.pages : [];
-    const sortedPages =
-      pdfPageCount && pdfPageCount > 1 && rawPages.length > 0
-        ? [...rawPages].sort(
-            (a, b) => (a.page_number ?? 0) - (b.page_number ?? 0)
-          )
-        : [];
+    const isMultiPage = Boolean(pdfPageCount && pdfPageCount > 1);
+    let pageSlices: { fields: Record<string, string>; table?: string[][] }[] | null = null;
+    let fieldsOut: Record<string, string> = {};
+    let tableOut: string[][] | undefined;
 
-    const normalizedPages =
-      sortedPages.length > 0
-        ? sortedPages.map((p) => ({
-            fields: { ...(p.fields ?? {}) },
-            table: p.table,
-          }))
-        : null;
+    if (isMultiPage) {
+      const pdfBuffer = Buffer.from(base64Data, "base64");
+      const singlePagePdfs = await splitPdfPages(pdfBuffer);
+      console.info(`[extract] split PDF into ${singlePagePdfs.length} single-page PDFs`);
 
-    if (normalizedPages) {
-      for (const slice of normalizedPages) maskW2Ssn(slice.fields);
+      pageSlices = [];
+      const prompt = EXTRACTION_PROMPTS[docType];
+
+      for (let i = 0; i < singlePagePdfs.length; i++) {
+        const pageB64 = singlePagePdfs[i]!.toString("base64");
+        console.info(`[extract] extracting page ${i + 1}/${singlePagePdfs.length}`);
+
+        const pageResult = await ai.models.generateContent({
+          model: "gemini-3.1-flash-lite-preview",
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: prompt },
+                { inlineData: { mimeType: "application/pdf", data: pageB64 } },
+              ],
+            },
+          ],
+        });
+
+        const slice = parseExtractJson(pageResult.text ?? "{}");
+        maskW2Ssn(slice.fields);
+        pageSlices.push(slice);
+      }
+      fieldsOut = pageSlices[0]!.fields;
+    } else {
+      const extractResult = await ai.models.generateContent({
+        model: "gemini-3.1-flash-lite-preview",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: EXTRACTION_PROMPTS[docType] },
+              { inlineData: { mimeType, data: base64Data } },
+            ],
+          },
+        ],
+      });
+      const parsed = parseExtractJson(extractResult.text ?? "{}");
+      maskW2Ssn(parsed.fields);
+      fieldsOut = parsed.fields;
+      tableOut = parsed.table;
     }
 
-    if (parsed.fields) maskW2Ssn(parsed.fields);
-
-    const multiPageSlices =
-      pdfPageCount &&
-      pdfPageCount > 1 &&
-      normalizedPages &&
-      normalizedPages.length > 1
-        ? normalizedPages
-        : null;
-
-    const fieldsOut =
-      multiPageSlices && multiPageSlices.length > 0
-        ? multiPageSlices[0]!.fields
-        : normalizedPages?.length === 1
-          ? normalizedPages[0]!.fields
-          : (parsed.fields ?? {});
-
-    const tableOut = multiPageSlices
-      ? undefined
-      : normalizedPages?.length === 1
-        ? normalizedPages[0]!.table
-        : parsed.table;
+    console.info("[extract] result", {
+      docType,
+      pdfPageCount,
+      isMultiPage,
+      pageSlices: pageSlices?.length ?? 0,
+    });
 
     let creditsRemaining: number | null = null;
     let creditsSource: "supabase" | "local" = "local";
@@ -243,7 +254,7 @@ export async function POST(req: NextRequest) {
       type: docType,
       fields: fieldsOut,
       table: tableOut,
-      ...(multiPageSlices ? { pages: multiPageSlices } : {}),
+      ...(pageSlices && pageSlices.length > 0 ? { pages: pageSlices } : {}),
       meta: {
         pdfPageCount,
         multiPagePdf: Boolean(pdfPageCount && pdfPageCount > 1),

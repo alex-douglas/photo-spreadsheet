@@ -6,6 +6,7 @@ import { FileText, Plus, Upload, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { generateId } from "@/lib/uuid";
 
 const MAX_STAGED = 15;
 const TILE_W = "w-[9.5rem] sm:w-40";
@@ -98,10 +99,7 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
         const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
         const pageCount = isPdf ? await fetchPdfPageCount(dataUrl) : null;
         built.push({
-          id:
-            typeof crypto !== "undefined" && "randomUUID" in crypto
-              ? crypto.randomUUID()
-              : `f-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          id: generateId("f"),
           dataUrl,
           isPdf,
           pageCount,
@@ -220,12 +218,17 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
   );
 
   const emptyDropZoneClass = cn(
-    "flex w-full cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed p-8 text-center transition-all duration-200 sm:p-12",
+    "flex w-full cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed p-8 text-center outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:p-12",
     dragActive
       ? "border-primary bg-primary/5 scale-[1.01]"
       : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/40",
-    disabled && "pointer-events-none opacity-50"
+    disabled && "pointer-events-none cursor-not-allowed opacity-50"
   );
+
+  function openGalleryPicker() {
+    if (disabled || addingFiles) return;
+    inputRef.current?.click();
+  }
 
   return (
     <div className={staged.length === 0 ? "space-y-3" : "space-y-5"}>
@@ -243,9 +246,20 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
                 <UploadZoneInner dragActive={dragActive} />
               </div>
             ) : (
-              <label htmlFor={galleryInputId} className={emptyDropZoneClass}>
+              <div
+                role="button"
+                tabIndex={0}
+                className={emptyDropZoneClass}
+                onClick={openGalleryPicker}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openGalleryPicker();
+                  }
+                }}
+              >
                 <UploadZoneInner dragActive={dragActive} />
-              </label>
+              </div>
             )}
           </div>
 
@@ -264,8 +278,8 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
           </div>
 
           <p className="text-center text-xs text-muted-foreground">
-            JPG, PNG, WebP, HEIC, PDF · Max 10MB · Paste with Ctrl+V (⌘V) · 1 credit per image; PDFs use 1 credit per
-            page
+            <span className="sm:hidden">JPG, PNG, WebP, HEIC, PDF · Max 10MB · 1 credit per image; PDFs use 1 credit per page</span>
+            <span className="hidden sm:inline">JPG, PNG, WebP, HEIC, PDF · Max 10MB · Paste with Ctrl+V (⌘V) · 1 credit per image; PDFs use 1 credit per page</span>
           </p>
         </>
       ) : (
@@ -308,7 +322,7 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
                 {!disabled && (
                   <button
                     type="button"
-                    className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    className="absolute right-2 top-2 flex size-7 cursor-pointer items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-destructive/10 hover:text-destructive"
                     aria-label={`Remove ${item.fileName}`}
                     onClick={() => removeStaged(item.id)}
                   >
@@ -319,11 +333,16 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
             ))}
 
             {staged.length < MAX_STAGED && (
-              <label htmlFor={galleryInputId} className={cn(placeholderTileClass, "cursor-pointer")}>
+              <button
+                type="button"
+                className={cn(placeholderTileClass, "cursor-pointer")}
+                disabled={disabled || addingFiles}
+                onClick={openGalleryPicker}
+              >
                 <Plus className="size-8 text-muted-foreground" strokeWidth={1.5} aria-hidden />
                 <Upload className="size-5 text-muted-foreground/80" aria-hidden />
                 <span className="sr-only">Add files</span>
-              </label>
+              </button>
             )}
           </div>
 
@@ -389,10 +408,13 @@ function UploadZoneInner({ dragActive }: { dragActive: boolean }) {
         <Upload className="size-8 text-current" strokeWidth={1.5} aria-hidden />
       </div>
       <div>
-        <p className="text-lg font-semibold text-foreground">Drop your image or PDF here</p>
+        <p className="text-lg font-semibold text-foreground">
+          <span className="sm:hidden">Tap to upload or take a photo</span>
+          <span className="hidden sm:inline">Drop your image or PDF here</span>
+        </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          or click to upload (JPG, PNG, WebP, HEIC, PDF). Paste from clipboard with Ctrl+V or ⌘V anywhere on this
-          page.
+          <span className="sm:hidden">JPG, PNG, WebP, HEIC, PDF supported.</span>
+          <span className="hidden sm:inline">or click to upload (JPG, PNG, WebP, HEIC, PDF). Paste from clipboard with Ctrl+V or ⌘V anywhere on this page.</span>
         </p>
       </div>
     </>

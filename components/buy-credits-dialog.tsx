@@ -1,7 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { Coins } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Coins, ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
+import { loadStripe } from "@stripe/stripe-js";
+import type { StripeElementsOptions } from "@stripe/stripe-js";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +25,12 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useCredits } from "@/components/credits-provider";
 import { CREDIT_PACKS } from "@/lib/credit-packs";
-import { addLocalCredits } from "@/lib/credits-local-fallback";
+
+const stripePromise = loadStripe(
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
+);
+
+type Step = "select" | "pay" | "success";
 
 interface BuyCreditsDialogProps {
   open: boolean;
@@ -25,65 +38,109 @@ interface BuyCreditsDialogProps {
   highlight?: string;
 }
 
-export function BuyCreditsDialog({ open, onOpenChange, highlight }: BuyCreditsDialogProps) {
+export function BuyCreditsDialog({
+  open,
+  onOpenChange,
+  highlight,
+}: BuyCreditsDialogProps) {
   const { deviceId, linkedEmail, setLinkedEmailState, refresh } = useCredits();
+  const [step, setStep] = useState<Step>("select");
   const [email, setEmail] = useState(linkedEmail ?? "");
-  const [linkEmail, setLinkEmail] = useState(linkedEmail ?? "");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [grantedCredits, setGrantedCredits] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  async function handlePurchase(packId: string) {
-    setMessage(null);
-    if (!email.trim() || !email.includes("@")) {
-      setMessage("Enter a valid email for your receipt and credit balance.");
+  const [linkEmail, setLinkEmail] = useState(linkedEmail ?? "");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkMessage, setLinkMessage] = useState<string | null>(null);
+
+  const selectedPack = selectedPackId
+    ? CREDIT_PACKS.find((p) => p.id === selectedPackId)
+    : undefined;
+
+  useEffect(() => {
+    if (!open) {
+      setTimeout(() => {
+        setStep("select");
+        setClientSecret(null);
+        setPaymentIntentId(null);
+        setSelectedPackId(null);
+        setGrantedCredits(0);
+        setError(null);
+        setCreating(false);
+        setLinkMessage(null);
+      }, 200);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (open && linkedEmail) {
+      setEmail(linkedEmail);
+      setLinkEmail(linkedEmail);
+    }
+  }, [open, linkedEmail]);
+
+  async function handleSelectPack(packId: string) {
+    setError(null);
+    const trimmed = email.trim();
+    if (!trimmed || !trimmed.includes("@")) {
+      setError("Enter a valid email for your receipt and credit balance.");
       return;
     }
-    setBusy(true);
+    setCreating(true);
+    setSelectedPackId(packId);
     try {
-      const res = await fetch("/api/credits/purchase", {
+      const res = await fetch("/api/stripe/create-payment-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), packId }),
+        body: JSON.stringify({ packId, email: trimmed }),
       });
-      const j = (await res.json()) as {
-        error?: string;
-        credits?: number;
-        email?: string;
-        granted?: number;
-        note?: string;
-      };
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Could not start payment");
 
-      if (res.status === 503) {
-        const pack = CREDIT_PACKS.find((p) => p.id === packId);
-        const granted = pack?.credits ?? 0;
-        if (granted < 1) throw new Error("Invalid pack");
-        addLocalCredits(granted);
-        setLinkedEmailState(email.trim().toLowerCase());
-        await refresh();
-        setMessage(
-          `${granted} credits added in this browser (dev — no Supabase). With Supabase configured, the same flow writes to email_wallets.`
-        );
-        return;
-      }
-
-      if (!res.ok) throw new Error(j.error || "Purchase failed");
-      if (j.email) setLinkedEmailState(j.email);
-      await refresh();
-      setMessage(`${j.granted ?? 0} credits added (mock payment — wire Stripe later). ${j.note ?? ""}`.trim());
+      setClientSecret(j.clientSecret);
+      setStep("pay");
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : "Something went wrong");
+      setSelectedPackId(null);
     } finally {
-      setBusy(false);
+      setCreating(false);
     }
   }
 
+  const handlePaymentSuccess = useCallback(
+    async (piId: string) => {
+      setPaymentIntentId(piId);
+      try {
+        const res = await fetch("/api/stripe/confirm-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentIntentId: piId }),
+        });
+        const j = await res.json();
+        if (res.ok) {
+          setGrantedCredits(j.granted ?? 0);
+          if (j.email) setLinkedEmailState(j.email);
+        }
+      } catch {
+        // Non-critical — webhook will handle credit grant
+      }
+      await refresh();
+      setStep("success");
+    },
+    [refresh, setLinkedEmailState]
+  );
+
   async function handleLink() {
-    setMessage(null);
+    setLinkMessage(null);
     if (!linkEmail.trim() || !linkEmail.includes("@")) {
-      setMessage("Enter the email you used when buying credits.");
+      setLinkMessage("Enter the email you used when buying credits.");
       return;
     }
-    setBusy(true);
+    setLinkBusy(true);
     try {
       const res = await fetch("/api/credits/link-email", {
         method: "POST",
@@ -95,95 +152,323 @@ export function BuyCreditsDialog({ open, onOpenChange, highlight }: BuyCreditsDi
       setLinkedEmailState(j.email);
       setEmail(j.email);
       await refresh();
-      setMessage(`Linked. Balance: ${j.credits} credits.`);
+      setLinkMessage(`Linked. Balance: ${j.credits} credits.`);
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Something went wrong");
+      setLinkMessage(e instanceof Error ? e.message : "Something went wrong");
     } finally {
-      setBusy(false);
+      setLinkBusy(false);
     }
   }
+
+  const elementsOptions: StripeElementsOptions | undefined = clientSecret
+    ? {
+        clientSecret,
+        appearance: {
+          theme: "stripe",
+          variables: {
+            borderRadius: "8px",
+          },
+        },
+      }
+    : undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md sm:max-w-lg" showCloseButton>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Coins className="size-5 text-primary" aria-hidden />
-            Credits
-          </DialogTitle>
-          <DialogDescription>
-            One credit = one image scan, or one PDF page. New visitors get 1 free credit (tracked per browser +
-            IP when Supabase is configured).             Mock purchases add credits to your email row in Supabase when the server is configured; otherwise they
-            add to this browser only for local dev at PhotoToSheet.com. Wire Stripe in the purchase API when
-            you&apos;re ready.
-          </DialogDescription>
-        </DialogHeader>
-
-        {highlight && (
-          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">{highlight}</p>
+        {step === "select" && (
+          <SelectStep
+            email={email}
+            setEmail={setEmail}
+            highlight={highlight}
+            error={error}
+            creating={creating}
+            onSelectPack={handleSelectPack}
+            linkEmail={linkEmail}
+            setLinkEmail={setLinkEmail}
+            linkBusy={linkBusy}
+            linkMessage={linkMessage}
+            onLink={handleLink}
+            onClose={() => onOpenChange(false)}
+          />
         )}
 
-        <div className="space-y-2">
-          <Label htmlFor="buy-email">Email for purchases &amp; recovery</Label>
-          <Input
-            id="buy-email"
-            type="email"
-            autoComplete="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+        {step === "pay" && clientSecret && elementsOptions && (
+          <Elements stripe={stripePromise} options={elementsOptions}>
+            <PayStep
+              pack={selectedPack!}
+              onBack={() => {
+                setStep("select");
+                setClientSecret(null);
+                setSelectedPackId(null);
+              }}
+              onSuccess={handlePaymentSuccess}
+            />
+          </Elements>
+        )}
+
+        {step === "success" && (
+          <SuccessStep
+            credits={grantedCredits}
+            onClose={() => onOpenChange(false)}
           />
-        </div>
-
-        <div className="grid gap-2 sm:grid-cols-3">
-          {CREDIT_PACKS.map((p) => (
-            <Button
-              key={p.id}
-              type="button"
-              variant="secondary"
-              disabled={busy}
-              className="flex h-auto flex-col gap-1 py-3"
-              onClick={() => void handlePurchase(p.id)}
-            >
-              <span className="font-semibold">{p.label}</span>
-              <span className="text-xs text-muted-foreground">{p.price} · mock</span>
-            </Button>
-          ))}
-        </div>
-
-        <Separator />
-
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-foreground">Already bought credits?</p>
-          <p className="text-xs text-muted-foreground">
-            Enter the same email to merge this browser&apos;s balance into your email wallet (one-time per
-            browser).
-          </p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <div className="flex-1 space-y-1">
-              <Label htmlFor="link-email">Email</Label>
-              <Input
-                id="link-email"
-                type="email"
-                value={linkEmail}
-                onChange={(e) => setLinkEmail(e.target.value)}
-                placeholder="you@example.com"
-              />
-            </div>
-            <Button type="button" variant="outline" disabled={busy} onClick={() => void handleLink()}>
-              Link email
-            </Button>
-          </div>
-        </div>
-
-        {message && <p className="text-sm text-muted-foreground">{message}</p>}
-
-        <DialogFooter>
-          <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-        </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ---------- Step 1: Select Pack ---------- */
+
+function SelectStep({
+  email,
+  setEmail,
+  highlight,
+  error,
+  creating,
+  onSelectPack,
+  linkEmail,
+  setLinkEmail,
+  linkBusy,
+  linkMessage,
+  onLink,
+  onClose,
+}: {
+  email: string;
+  setEmail: (v: string) => void;
+  highlight?: string;
+  error: string | null;
+  creating: boolean;
+  onSelectPack: (packId: string) => void;
+  linkEmail: string;
+  setLinkEmail: (v: string) => void;
+  linkBusy: boolean;
+  linkMessage: string | null;
+  onLink: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Coins className="size-5 text-primary" aria-hidden />
+          Buy Credits
+        </DialogTitle>
+        <DialogDescription>
+          One credit = one image scan or one PDF page. Choose a pack below to
+          purchase with your card.
+        </DialogDescription>
+      </DialogHeader>
+
+      {highlight && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+          {highlight}
+        </p>
+      )}
+
+      <div className="space-y-2">
+        <Label htmlFor="buy-email">Email for receipt &amp; credit balance</Label>
+        <Input
+          id="buy-email"
+          type="email"
+          autoComplete="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        {CREDIT_PACKS.map((p) => (
+          <Button
+            key={p.id}
+            type="button"
+            variant="secondary"
+            disabled={creating}
+            className="flex h-auto flex-col gap-1 py-3"
+            onClick={() => onSelectPack(p.id)}
+          >
+            <span className="font-semibold">{p.label}</span>
+            <span className="text-xs text-muted-foreground">{p.price}</span>
+          </Button>
+        ))}
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <Separator />
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-foreground">
+          Already bought credits?
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Enter the same email to merge this browser&apos;s balance into your
+          email wallet.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="flex-1 space-y-1">
+            <Label htmlFor="link-email">Email</Label>
+            <Input
+              id="link-email"
+              type="email"
+              value={linkEmail}
+              onChange={(e) => setLinkEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={linkBusy}
+            onClick={onLink}
+          >
+            Link email
+          </Button>
+        </div>
+      </div>
+
+      {linkMessage && (
+        <p className="text-sm text-muted-foreground">{linkMessage}</p>
+      )}
+
+      <DialogFooter>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onClose}
+        >
+          Close
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+/* ---------- Step 2: Payment ---------- */
+
+function PayStep({
+  pack,
+  onBack,
+  onSuccess,
+}: {
+  pack: (typeof CREDIT_PACKS)[number];
+  onBack: () => void;
+  onSuccess: (paymentIntentId: string) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setProcessing(true);
+    setPayError(null);
+
+    const { error, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: window.location.href,
+      },
+      redirect: "if_required",
+    });
+
+    if (error) {
+      setPayError(error.message ?? "Payment failed");
+      setProcessing(false);
+      return;
+    }
+
+    if (paymentIntent && paymentIntent.status === "succeeded") {
+      onSuccess(paymentIntent.id);
+    } else {
+      setPayError("Payment was not completed. Please try again.");
+      setProcessing(false);
+    }
+  }
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Coins className="size-5 text-primary" aria-hidden />
+          {pack.label} — {pack.price}
+        </DialogTitle>
+        <DialogDescription>
+          Enter your payment details below. Your card will be charged{" "}
+          {pack.price}.
+        </DialogDescription>
+      </DialogHeader>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <PaymentElement
+          options={{ layout: "tabs" }}
+        />
+
+        {payError && <p className="text-sm text-destructive">{payError}</p>}
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onBack}
+            disabled={processing}
+          >
+            <ArrowLeft className="mr-1 size-4" />
+            Back
+          </Button>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={!stripe || processing}
+            className="ml-auto"
+          >
+            {processing ? (
+              <>
+                <Loader2 className="mr-1 size-4 animate-spin" />
+                Processing…
+              </>
+            ) : (
+              `Pay ${pack.price}`
+            )}
+          </Button>
+        </div>
+      </form>
+    </>
+  );
+}
+
+/* ---------- Step 3: Success ---------- */
+
+function SuccessStep({
+  credits,
+  onClose,
+}: {
+  credits: number;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <DialogHeader>
+        <div className="flex flex-col items-center gap-3 py-4 text-center">
+          <CheckCircle2 className="size-12 text-green-500" />
+          <DialogTitle>Payment Successful</DialogTitle>
+          <DialogDescription>
+            {credits > 0
+              ? `${credits} credits have been added to your account.`
+              : "Your credits have been added to your account."}
+          </DialogDescription>
+        </div>
+      </DialogHeader>
+      <DialogFooter>
+        <Button type="button" onClick={onClose}>
+          Done
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

@@ -122,7 +122,7 @@ function TableBlock({
 }
 
 export function ResultsTable({ type, fields: initialFields, table: initialTable, pages }: ResultsTableProps) {
-  const usePages = pages && pages.length > 1;
+  const usePages = pages && pages.length > 0;
 
   const [slices, setSlices] = useState<HistoryPageSlice[]>(() =>
     usePages ? pages.map(cloneSlice) : [{ fields: { ...initialFields }, table: initialTable?.map((r) => [...r]) }]
@@ -179,16 +179,28 @@ export function ResultsTable({ type, fields: initialFields, table: initialTable,
           table={singleTable}
           pageSlices={usePages ? exportSlices : undefined}
           docType={type}
+          label={usePages && slices.length > 1 ? "All pages" : undefined}
         />
       </div>
 
       {usePages ? (
         <div className="space-y-10">
           {slices.map((slice, pageIndex) => (
-            <section key={pageIndex} className="space-y-6 scroll-mt-8">
-              <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                Page {pageIndex + 1}
-              </h2>
+            <section key={pageIndex} className="space-y-4 scroll-mt-8">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                  Page {pageIndex + 1}
+                </h2>
+                {slices.length > 1 && (
+                  <ExportButtons
+                    fields={slice.fields}
+                    table={slice.table}
+                    docType={type}
+                    variant="compact"
+                    label={`Page ${pageIndex + 1}`}
+                  />
+                )}
+              </div>
               <FieldsBlock
                 fields={slice.fields}
                 onUpdateField={(key, v) => updateSliceField(pageIndex, key, v)}

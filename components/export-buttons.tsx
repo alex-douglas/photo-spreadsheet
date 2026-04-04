@@ -22,9 +22,13 @@ interface ExportButtonsProps {
   /** When set with more than one slice, CSV/JSON/Copy merge all pages. */
   pageSlices?: ExportPageSlice[];
   docType: string;
+  /** Visual variant: "default" for full-size, "compact" for inline per-page use. */
+  variant?: "default" | "compact";
+  /** Label prefix for the buttons (e.g. "Page 1"). */
+  label?: string;
 }
 
-export function ExportButtons({ fields, table, pageSlices, docType }: ExportButtonsProps) {
+export function ExportButtons({ fields, table, pageSlices, docType, variant = "default", label }: ExportButtonsProps) {
   const [copied, setCopied] = useState(false);
 
   const slicesForExport: ExportPageSlice[] =
@@ -37,7 +41,8 @@ export function ExportButtons({ fields, table, pageSlices, docType }: ExportButt
       slicesForExport.length > 1
         ? exportCSVFromPageSlices(slicesForExport)
         : exportCSV(slicesForExport[0]!.fields, slicesForExport[0]!.table);
-    downloadFile(csv, `${docType}-extract.csv`, "text/csv");
+    const suffix = label ? `-${label.toLowerCase().replace(/\s+/g, "-")}` : "";
+    downloadFile(csv, `${docType}-extract${suffix}.csv`, "text/csv");
   }
 
   function handleJSON() {
@@ -45,7 +50,8 @@ export function ExportButtons({ fields, table, pageSlices, docType }: ExportButt
       slicesForExport.length > 1
         ? exportJSONFromPageSlices(slicesForExport)
         : exportJSON(slicesForExport[0]!.fields, slicesForExport[0]!.table);
-    downloadFile(json, `${docType}-extract.json`, "application/json");
+    const suffix = label ? `-${label.toLowerCase().replace(/\s+/g, "-")}` : "";
+    downloadFile(json, `${docType}-extract${suffix}.json`, "application/json");
   }
 
   async function handleClipboard() {
@@ -64,25 +70,32 @@ export function ExportButtons({ fields, table, pageSlices, docType }: ExportButt
     setTimeout(() => setCopied(false), 2000);
   }
 
+  const isCompact = variant === "compact";
+  const btnSize = isCompact ? "xs" : "sm";
+  const iconSize = isCompact ? "size-3" : "size-4";
+
   return (
-    <div className="flex flex-wrap gap-2">
-      <Button type="button" variant="outline" size="sm" onClick={handleCSV} className="gap-1.5">
-        <Download className="size-4" aria-hidden />
+    <div className="flex flex-wrap items-center gap-2">
+      {label && (
+        <span className="text-xs font-medium text-muted-foreground">{label}:</span>
+      )}
+      <Button type="button" variant="outline" size={btnSize} onClick={handleCSV} className="gap-1.5">
+        <Download className={iconSize} aria-hidden />
         CSV
       </Button>
-      <Button type="button" variant="outline" size="sm" onClick={handleJSON} className="gap-1.5">
-        <Download className="size-4" aria-hidden />
+      <Button type="button" variant="outline" size={btnSize} onClick={handleJSON} className="gap-1.5">
+        <Download className={iconSize} aria-hidden />
         JSON
       </Button>
-      <Button type="button" variant="default" size="sm" onClick={handleClipboard} className="gap-1.5">
+      <Button type="button" variant={isCompact ? "outline" : "default"} size={btnSize} onClick={handleClipboard} className="gap-1.5">
         {copied ? (
           <>
-            <Check className="size-4" aria-hidden />
+            <Check className={iconSize} aria-hidden />
             Copied
           </>
         ) : (
           <>
-            <ClipboardCopy className="size-4" aria-hidden />
+            <ClipboardCopy className={iconSize} aria-hidden />
             Copy
           </>
         )}

@@ -66,7 +66,7 @@ export function SiteHeader() {
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1 sm:gap-2">
           <span
-            className="hidden h-9 items-center px-1 text-xs font-medium leading-none text-muted-foreground sm:inline-flex"
+            className="inline-flex h-9 items-center px-1 text-xs font-medium leading-none text-muted-foreground"
             title={
               creditsMode === "unconfigured"
                 ? "Credits stored in this browser until Supabase is configured"
@@ -87,7 +87,7 @@ export function SiteHeader() {
           <ModeToggle />
         </div>
       </div>
-      <div className="mx-auto flex max-w-3xl gap-2 border-t border-border px-4 py-2 sm:hidden">
+      <div className="mx-auto flex max-w-3xl gap-2 px-4 py-2 sm:hidden">
         <Link
           href="/"
           className={cn(

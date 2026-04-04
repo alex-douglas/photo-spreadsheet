@@ -25,7 +25,10 @@ export function ModeToggle() {
       disabled={!mounted}
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      onClick={() => setTheme(isDark ? "light" : "dark")}
+      onClick={() => {
+        if (!mounted) return;
+        setTheme(isDark ? "light" : "dark");
+      }}
     >
       {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
     </Button>

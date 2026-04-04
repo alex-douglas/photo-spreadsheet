@@ -127,30 +127,6 @@ export const EXTRACTION_PROMPTS: Record<DocType, string> = {
   other: OTHER_PROMPT,
 };
 
-/** Single user message for extraction; for multi-page PDFs, asks for a `pages[]` payload. */
-export function getExtractionUserPrompt(docType: DocType, pdfPageCount?: number): string {
-  const base = EXTRACTION_PROMPTS[docType];
-  const n = pdfPageCount ?? 1;
-  if (n <= 1) return base;
-
-  return `You are extracting from a PDF with ${n} pages.
-
-Return ONLY valid JSON with this exact top-level shape (do not put "fields" or "table" at the root — only inside each pages[] item):
-{
-  "pages": [
-    { "page_number": 1, "fields": { }, "table": [ ] },
-    { "page_number": 2, "fields": { }, "table": [ ] }
-  ]
-}
-
-Include exactly ${n} objects in "pages", with page_number 1 through ${n} in order. For "fields" and "table" on each page, use the same field names, table column headers, and conventions as in these single-page instructions (each page is its own surface; extract only what belongs on that page):
----
-${base}
----
-
-If a page has no line-item table, use "table": []. Use empty strings for missing scalar fields. Return ONLY the JSON object (no markdown code fences).`;
-}
-
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   w2: "W-2 Tax Form",
   receipt: "Receipt",
