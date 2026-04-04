@@ -1,0 +1,45 @@
+---
+description: PhotoToSheet project context — domain, hosting, integrations, architecture
+alwaysApply: true
+---
+
+# PhotoToSheet — Project Context
+
+## Product
+PhotoToSheet extracts structured data from photos and PDFs (receipts, invoices, W-2s, etc.) into CSV/JSON. Live at **https://phototosheet.com**.
+
+## Hosting & Deployment
+- **Vercel** — deploys from `main` branch on GitHub (`alex-douglas/photo-spreadsheet`)
+- Environment variables must be set in Vercel dashboard (not just `.env.local`)
+- Pushing to `main` triggers production deployment
+
+## Key Integrations
+
+### Supabase (database)
+- Tables: `device_wallets`, `email_wallets`, `credit_grants`
+- Credits system: 1 credit = 1 image scan or 1 PDF page
+- New visitors get 1 free credit (per device, rate-limited by IP)
+- Email wallets are the primary wallet after linking; device wallets are ephemeral
+- Admin client in `lib/supabase/admin.ts`, credit logic in `lib/credits-server.ts`
+
+### Stripe (payments)
+- Using **Stripe Elements** with PaymentIntents (not Checkout redirect) — users pay inline
+- Test mode keys currently active (`pk_test_`, `sk_test_`)
+- Single product "Page Credit" (prod_UH1HaZkClfSx8Y), price ID in `STRIPE_PRICE_ID` env var
+- $0.25/credit, packs: 10/$2.50, 25/$6.25, 60/$15.00
+- Credit granting is idempotent via `credit_grants` table (keyed on `payment_intent_id`)
+- Webhook at `/api/stripe/webhook` for `payment_intent.succeeded` (backup grant)
+- `/api/stripe/confirm-payment` for instant grant after client-side payment success
+- Env vars: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`
+
+### Google Gemini (AI extraction)
+- Used for document classification and field extraction
+- Multi-page PDFs are split into single-page PDFs via `pdf-lib` before sending to Gemini
+- Extraction prompts in `lib/extraction-prompts.ts`
+
+## Architecture Notes
+- Next.js App Router with Turbopack
+- Credits provider context in `components/credits-provider.tsx`
+- History stored in browser localStorage (`lib/history-storage.ts`)
+- `lib/uuid.ts` provides `generateId()` with fallback for non-secure (HTTP) contexts
+- Remote dev access configured via `allowedDevOrigins` in `next.config.ts`

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Coins, ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
 import {
   Elements,
@@ -24,13 +24,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useCredits } from "@/components/credits-provider";
-import { CREDIT_PACKS } from "@/lib/credit-packs";
+import {
+  CREDIT_PACKS,
+  CUSTOM_MIN,
+  CUSTOM_MAX,
+  creditsToPrice,
+  validateCustomCredits,
+} from "@/lib/credit-packs";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
 );
 
 type Step = "select" | "pay" | "success";
+
+interface PayInfo {
+  credits: number;
+  label: string;
+  price: string;
+}
 
 interface BuyCreditsDialogProps {
   open: boolean;
@@ -46,9 +58,8 @@ export function BuyCreditsDialog({
   const { deviceId, linkedEmail, setLinkedEmailState, refresh } = useCredits();
   const [step, setStep] = useState<Step>("select");
   const [email, setEmail] = useState(linkedEmail ?? "");
-  const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
+  const [payInfo, setPayInfo] = useState<PayInfo | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [grantedCredits, setGrantedCredits] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -57,17 +68,12 @@ export function BuyCreditsDialog({
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkMessage, setLinkMessage] = useState<string | null>(null);
 
-  const selectedPack = selectedPackId
-    ? CREDIT_PACKS.find((p) => p.id === selectedPackId)
-    : undefined;
-
   useEffect(() => {
     if (!open) {
       setTimeout(() => {
         setStep("select");
         setClientSecret(null);
-        setPaymentIntentId(null);
-        setSelectedPackId(null);
+        setPayInfo(null);
         setGrantedCredits(0);
         setError(null);
         setCreating(false);
@@ -83,37 +89,55 @@ export function BuyCreditsDialog({
     }
   }, [open, linkedEmail]);
 
-  async function handleSelectPack(packId: string) {
-    setError(null);
+  function validateEmail(): string | null {
     const trimmed = email.trim();
-    if (!trimmed || !trimmed.includes("@")) {
-      setError("Enter a valid email for your receipt and credit balance.");
-      return;
-    }
+    if (!trimmed || !trimmed.includes("@")) return "Enter a valid email for your receipt and credit balance.";
+    return null;
+  }
+
+  async function createPaymentIntent(body: Record<string, unknown>, info: PayInfo) {
+    const emailErr = validateEmail();
+    if (emailErr) { setError(emailErr); return; }
+
+    setError(null);
     setCreating(true);
-    setSelectedPackId(packId);
+    setPayInfo(info);
     try {
       const res = await fetch("/api/stripe/create-payment-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packId, email: trimmed }),
+        body: JSON.stringify({ ...body, email: email.trim() }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Could not start payment");
-
       setClientSecret(j.clientSecret);
       setStep("pay");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
-      setSelectedPackId(null);
+      setPayInfo(null);
     } finally {
       setCreating(false);
     }
   }
 
+  function handleSelectPack(packId: string) {
+    const pack = CREDIT_PACKS.find((p) => p.id === packId)!;
+    void createPaymentIntent(
+      { packId },
+      { credits: pack.credits, label: pack.label, price: pack.price }
+    );
+  }
+
+  function handleCustomPurchase(credits: number) {
+    const { price } = creditsToPrice(credits);
+    void createPaymentIntent(
+      { credits },
+      { credits, label: `${credits} credits`, price }
+    );
+  }
+
   const handlePaymentSuccess = useCallback(
     async (piId: string) => {
-      setPaymentIntentId(piId);
       try {
         const res = await fetch("/api/stripe/confirm-payment", {
           method: "POST",
@@ -165,9 +189,7 @@ export function BuyCreditsDialog({
         clientSecret,
         appearance: {
           theme: "stripe",
-          variables: {
-            borderRadius: "8px",
-          },
+          variables: { borderRadius: "8px" },
         },
       }
     : undefined;
@@ -183,6 +205,7 @@ export function BuyCreditsDialog({
             error={error}
             creating={creating}
             onSelectPack={handleSelectPack}
+            onCustomPurchase={handleCustomPurchase}
             linkEmail={linkEmail}
             setLinkEmail={setLinkEmail}
             linkBusy={linkBusy}
@@ -192,14 +215,14 @@ export function BuyCreditsDialog({
           />
         )}
 
-        {step === "pay" && clientSecret && elementsOptions && (
+        {step === "pay" && clientSecret && elementsOptions && payInfo && (
           <Elements stripe={stripePromise} options={elementsOptions}>
             <PayStep
-              pack={selectedPack!}
+              payInfo={payInfo}
               onBack={() => {
                 setStep("select");
                 setClientSecret(null);
-                setSelectedPackId(null);
+                setPayInfo(null);
               }}
               onSuccess={handlePaymentSuccess}
             />
@@ -226,6 +249,7 @@ function SelectStep({
   error,
   creating,
   onSelectPack,
+  onCustomPurchase,
   linkEmail,
   setLinkEmail,
   linkBusy,
@@ -239,6 +263,7 @@ function SelectStep({
   error: string | null;
   creating: boolean;
   onSelectPack: (packId: string) => void;
+  onCustomPurchase: (credits: number) => void;
   linkEmail: string;
   setLinkEmail: (v: string) => void;
   linkBusy: boolean;
@@ -246,6 +271,39 @@ function SelectStep({
   onLink: () => void;
   onClose: () => void;
 }) {
+  const [customInput, setCustomInput] = useState("");
+
+  const parsedCustom = useMemo(() => {
+    const n = Number(customInput);
+    return customInput.trim() && Number.isFinite(n) && n > 0 ? n : null;
+  }, [customInput]);
+
+  const isCustomValid = parsedCustom !== null && validateCustomCredits(parsedCustom) === null;
+
+  const customWarning = useMemo(() => {
+    if (!customInput.trim()) return null;
+    if (parsedCustom === null) return null;
+    return validateCustomCredits(parsedCustom);
+  }, [customInput, parsedCustom]);
+
+  const customPrice = useMemo(() => {
+    if (!isCustomValid || parsedCustom === null) return null;
+    return creditsToPrice(parsedCustom).price;
+  }, [isCustomValid, parsedCustom]);
+
+  function handleCustomSubmit() {
+    if (!isCustomValid || parsedCustom === null) return;
+    onCustomPurchase(parsedCustom);
+  }
+
+  function handleCustomInputChange(raw: string) {
+    const cleaned = raw.replace(/[^0-9]/g, "");
+    if (!cleaned) { setCustomInput(""); return; }
+    const n = Number(cleaned);
+    if (n > CUSTOM_MAX) return;
+    setCustomInput(cleaned);
+  }
+
   return (
     <>
       <DialogHeader>
@@ -254,8 +312,8 @@ function SelectStep({
           Buy Credits
         </DialogTitle>
         <DialogDescription>
-          One credit = one image scan or one PDF page. Choose a pack below to
-          purchase with your card.
+          One credit = one image scan or one PDF page. Choose a pack or enter a
+          custom amount.
         </DialogDescription>
       </DialogHeader>
 
@@ -291,6 +349,40 @@ function SelectStep({
             <span className="text-xs text-muted-foreground">{p.price}</span>
           </Button>
         ))}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="custom-credits">Or enter a custom amount</Label>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Input
+              id="custom-credits"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              placeholder={`${CUSTOM_MIN}–${CUSTOM_MAX}`}
+              value={customInput}
+              onChange={(e) => handleCustomInputChange(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCustomSubmit(); } }}
+              className="pr-20"
+            />
+            {customPrice && (
+              <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">
+                = {customPrice}
+              </span>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant={isCustomValid ? "default" : "secondary"}
+            disabled={creating || !isCustomValid}
+            onClick={handleCustomSubmit}
+            className={isCustomValid ? "bg-green-600 text-white hover:bg-green-700" : ""}
+          >
+            Buy
+          </Button>
+        </div>
+        {customWarning && <p className="text-xs text-destructive">{customWarning}</p>}
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -332,12 +424,7 @@ function SelectStep({
       )}
 
       <DialogFooter>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-        >
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
           Close
         </Button>
       </DialogFooter>
@@ -348,11 +435,11 @@ function SelectStep({
 /* ---------- Step 2: Payment ---------- */
 
 function PayStep({
-  pack,
+  payInfo,
   onBack,
   onSuccess,
 }: {
-  pack: (typeof CREDIT_PACKS)[number];
+  payInfo: PayInfo;
   onBack: () => void;
   onSuccess: (paymentIntentId: string) => void;
 }) {
@@ -370,9 +457,7 @@ function PayStep({
 
     const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
-      confirmParams: {
-        return_url: window.location.href,
-      },
+      confirmParams: { return_url: window.location.href },
       redirect: "if_required",
     });
 
@@ -395,18 +480,16 @@ function PayStep({
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <Coins className="size-5 text-primary" aria-hidden />
-          {pack.label} — {pack.price}
+          {payInfo.label} — {payInfo.price}
         </DialogTitle>
         <DialogDescription>
           Enter your payment details below. Your card will be charged{" "}
-          {pack.price}.
+          {payInfo.price}.
         </DialogDescription>
       </DialogHeader>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <PaymentElement
-          options={{ layout: "tabs" }}
-        />
+        <PaymentElement options={{ layout: "tabs" }} />
 
         {payError && <p className="text-sm text-destructive">{payError}</p>}
 
@@ -433,7 +516,7 @@ function PayStep({
                 Processing…
               </>
             ) : (
-              `Pay ${pack.price}`
+              `Pay ${payInfo.price}`
             )}
           </Button>
         </div>
