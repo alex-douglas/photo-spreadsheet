@@ -13,6 +13,7 @@ import {
   DocType,
 } from "@/lib/extraction-prompts";
 import { splitPdfPages } from "@/lib/pdf-split";
+import { logUploadEvent } from "@/lib/upload-events";
 
 const VALID_TYPES: DocType[] = [
   "w2",
@@ -249,6 +250,13 @@ export async function POST(req: NextRequest) {
         );
       }
     }
+
+    logUploadEvent({
+      doc_type: docType,
+      mime_type: mimeType,
+      page_count: pdfPageCount ?? 1,
+      credit_cost: creditCost,
+    });
 
     return NextResponse.json({
       type: docType,
