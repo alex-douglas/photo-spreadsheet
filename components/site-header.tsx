@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -23,15 +24,14 @@ export function SiteHeader() {
             title={SITE_DOMAIN}
             className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <div
-              className={cn(
-                photoLogoFont.className,
-                "flex h-8 min-w-8 shrink-0 items-center justify-center rounded-lg bg-primary px-1 text-[0.65rem] font-bold leading-none tracking-wide text-primary-foreground"
-              )}
-              aria-hidden
-            >
-              PTS
-            </div>
+            <Image
+              src="/updated-logo.png"
+              alt="PhotoToSheet logo"
+              width={32}
+              height={32}
+              className="size-8 shrink-0"
+              priority
+            />
             <span
               className={cn(
                 photoLogoFont.className,
