@@ -8,7 +8,7 @@ Live at [phototosheet.com](https://phototosheet.com)
 
 PhotoToSheet is an AI-powered document extraction tool. Users upload a photo, screenshot, or PDF of any document — receipts, invoices, W-2s, business cards, tables — and get structured, labeled data back instantly. Results can be exported as CSV, JSON, or copied to clipboard.
 
-No account required. No data stored on our servers. Privacy-first.
+No account required. No data stored on our servers. Privacy-first. Operated by Datalytics LLC.
 
 ### Supported Document Types
 
@@ -31,6 +31,7 @@ No account required. No data stored on our servers. Privacy-first.
 | Database | Supabase (PostgreSQL) |
 | Hosting | Vercel (auto-deploys from `main`) |
 | Analytics | Vercel Analytics (privacy-friendly, no cookies) |
+| Typography | @tailwindcss/typography (legal pages) |
 | Fonts | Geist (via `next/font`) |
 
 ## Architecture
@@ -87,6 +88,8 @@ app/
   page.tsx                Upload page (main landing)
   history/page.tsx        History page
   extraction/[id]/        Extraction results (dynamic route)
+  privacy/page.tsx        Privacy Policy
+  terms/page.tsx          Terms of Service
   api/
     extract/              AI extraction endpoint
     credits/              Bootstrap, purchase, link-email
@@ -148,6 +151,17 @@ npm run dev:lan      # accessible on LAN (0.0.0.0)
 
 For remote dev access (e.g. testing from a phone on your network), add the device's IP to `NEXT_DEV_ALLOWED_HOSTS` in `.env.local`.
 
+## Legal & Compliance
+
+- **Privacy Policy** at `/privacy`, **Terms of Service** at `/terms`
+- Source legal documents maintained externally; rendered as JSX in the app
+- Terms acceptance checkbox on first upload (persisted in localStorage, shown once)
+- Purchase disclaimer in the buy-credits dialog ("All sales are final")
+- W-2 sensitive data warning banner on extraction results (SSN masking caveat)
+- AI accuracy disclaimer on the upload page
+- Footer links to Privacy, Terms, and Contact (hello@phototosheet.com)
+- Entity: Datalytics LLC, Denver, CO
+
 ## Key Design Decisions
 
 1. **No user accounts** — credits are tied to devices and optionally emails. Reduces friction for a utility tool.
@@ -157,3 +171,4 @@ For remote dev access (e.g. testing from a phone on your network), add the devic
 5. **No cookie banner** — Vercel Analytics is cookie-free; upload tracking stores no PII. No consent mechanism needed.
 6. **localStorage history** — keeps the app stateless on the server side. Users own their data in their browser.
 7. **`crypto.randomUUID` fallback** — the app is sometimes accessed over HTTP during development (e.g. via Tailscale IP), where `crypto.randomUUID` isn't available. A timestamp-based fallback ensures IDs are always generated.
+8. **Terms accepted once** — the terms checkbox persists in localStorage so returning users aren't asked again.
