@@ -211,6 +211,16 @@ export default function HomePage() {
         </div>
 
         {!hasStagedFile && (
+          <p className="-mt-6 text-center text-[0.65rem] leading-relaxed text-muted-foreground/70">
+            PhotoToSheet uses AI for data extraction. Always verify extracted data for accuracy.
+            Not a tax preparation or accounting service.{" "}
+            <a href="/terms" className="underline underline-offset-2 hover:text-foreground">
+              Learn more
+            </a>
+          </p>
+        )}
+
+        {!hasStagedFile && (
           <section className="space-y-4" aria-labelledby="features-heading">
             <h2
               id="features-heading"

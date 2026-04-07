@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { SiteShell } from "@/components/site-shell";
 import { ResultsTable } from "@/components/results-table";
@@ -111,6 +111,24 @@ export default function ExtractionClient({ id }: { id: string }) {
                 : "Full document text was sent to the model for extraction."}
             </AlertDescription>
           </Alert>
+        )}
+
+        {entry.type === "w2" && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950/30">
+            <div className="flex gap-3">
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div>
+                <h3 className="font-semibold text-amber-900 dark:text-amber-200">
+                  Important: Verify Sensitive Data
+                </h3>
+                <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">
+                  SSNs are automatically masked, but this may not work in all cases.{" "}
+                  <strong>Always verify that SSNs and other sensitive data are properly redacted</strong>{" "}
+                  before sharing or exporting this data. Do not rely solely on auto-masking.
+                </p>
+              </div>
+            </div>
+          </div>
         )}
 
         <ResultsTable

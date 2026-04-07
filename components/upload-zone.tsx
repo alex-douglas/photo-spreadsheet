@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { FileText, Plus, Upload, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { generateId } from "@/lib/uuid";
+
+const TERMS_ACCEPTED_KEY = "photosheet.terms_accepted.v1";
 
 const MAX_STAGED = 15;
 const TILE_W = "w-[9.5rem] sm:w-40";
@@ -69,6 +72,20 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
   const inputRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryInputId = useId();
+
+  const [termsAccepted, setTermsAccepted] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(TERMS_ACCEPTED_KEY) === "1";
+  });
+
+  function handleTermsToggle() {
+    setTermsAccepted((prev) => {
+      const next = !prev;
+      if (next) localStorage.setItem(TERMS_ACCEPTED_KEY, "1");
+      else localStorage.removeItem(TERMS_ACCEPTED_KEY);
+      return next;
+    });
+  }
 
   useEffect(() => {
     onStagedChange?.(staged.length > 0);
@@ -346,12 +363,34 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
             )}
           </div>
 
+          {!termsAccepted && (
+            <div className="flex items-start justify-center gap-2">
+              <input
+                type="checkbox"
+                id="terms-accept"
+                checked={termsAccepted}
+                onChange={handleTermsToggle}
+                className="mt-0.5 size-4 shrink-0 cursor-pointer accent-primary"
+              />
+              <label htmlFor="terms-accept" className="cursor-pointer text-sm text-muted-foreground">
+                I agree to the{" "}
+                <Link href="/terms" target="_blank" className="underline underline-offset-2 hover:text-foreground">
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link href="/privacy" target="_blank" className="underline underline-offset-2 hover:text-foreground">
+                  Privacy Policy
+                </Link>
+              </label>
+            </div>
+          )}
+
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-center">
             <Button
               type="button"
               size="lg"
               className="w-full sm:w-auto sm:min-w-[12rem]"
-              disabled={disabled || analyzeBusy || addingFiles}
+              disabled={disabled || analyzeBusy || addingFiles || !termsAccepted}
               onClick={() => void handleAnalyze()}
             >
               {analyzeBusy || addingFiles ? "Working…" : "Analyze now"}
