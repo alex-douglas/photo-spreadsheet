@@ -24,6 +24,8 @@ const VALID_TYPES: DocType[] = [
   "other",
 ];
 
+export const maxDuration = 60;
+
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
 async function fetchBlobFile(blobUrl: string): Promise<{ buffer: Buffer; mimeType: string }> {
@@ -56,7 +58,9 @@ export async function POST(req: NextRequest) {
     let base64Data: string;
 
     if (blobUrl) {
+      console.info("[extract] fetching blob", blobUrl);
       const { buffer, mimeType: blobMime } = await fetchBlobFile(blobUrl);
+      console.info("[extract] blob fetched", { size: buffer.length, mime: blobMime });
       if (buffer.length > MAX_SIZE) {
         return NextResponse.json(
           { error: "File too large. Please use a file under 10MB." },
