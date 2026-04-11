@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { del } from "@vercel/blob";
 import { getGemini } from "@/lib/gemini";
 import { getPdfPageCount } from "@/lib/pdf-page-count";
 import {
@@ -26,19 +27,61 @@ const VALID_TYPES: DocType[] = [
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
+async function fetchBlobFile(blobUrl: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  const res = await fetch(blobUrl);
+  if (!res.ok) throw new Error(`Failed to fetch blob: ${res.status}`);
+  const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+  const arrayBuf = await res.arrayBuffer();
+  const mimeType = contentType.split(";")[0]!.trim().toLowerCase();
+  return { buffer: Buffer.from(arrayBuf), mimeType };
+}
+
 export async function POST(req: NextRequest) {
+  let blobUrl: string | undefined;
+
   try {
     const body = await req.json();
-    const { image, deviceId, linkedEmail } = body as {
+    const { blobUrl: url, image, deviceId, linkedEmail } = body as {
+      blobUrl?: string;
       image?: string;
       deviceId?: string;
       linkedEmail?: string | null;
     };
 
+    blobUrl = url;
+
     const walletDeviceId =
       typeof deviceId === "string" && deviceId.length > 0 ? deviceId : undefined;
 
-    if (!image) {
+    let mimeType: string;
+    let base64Data: string;
+
+    if (blobUrl) {
+      const { buffer, mimeType: blobMime } = await fetchBlobFile(blobUrl);
+      if (buffer.length > MAX_SIZE) {
+        return NextResponse.json(
+          { error: "File too large. Please use a file under 10MB." },
+          { status: 400 }
+        );
+      }
+      mimeType = blobMime;
+      base64Data = buffer.toString("base64");
+    } else if (image) {
+      const dataUrlMatch = image.match(/^data:([^;]+);base64,(.+)$/);
+      mimeType = "image/jpeg";
+      base64Data = image;
+      if (dataUrlMatch) {
+        mimeType = dataUrlMatch[1]!.toLowerCase();
+        base64Data = dataUrlMatch[2]!;
+      }
+      const estimatedSize = (base64Data.length * 3) / 4;
+      if (estimatedSize > MAX_SIZE) {
+        return NextResponse.json(
+          { error: "File too large. Please use a file under 10MB." },
+          { status: 400 }
+        );
+      }
+    } else {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
@@ -50,29 +93,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const dataUrlMatch = image.match(/^data:([^;]+);base64,(.+)$/);
-    let mimeType = "image/jpeg";
-    let base64Data = image;
-
-    if (dataUrlMatch) {
-      mimeType = dataUrlMatch[1].toLowerCase();
-      base64Data = dataUrlMatch[2];
-    }
-
     const allowedMime =
       /^image\/(png|jpe?g|webp|gif|heic|heif|bmp|tiff?)$/i.test(mimeType) ||
       mimeType === "application/pdf";
     if (!allowedMime) {
       return NextResponse.json(
         { error: "Unsupported file type. Use an image or PDF." },
-        { status: 400 }
-      );
-    }
-
-    const estimatedSize = (base64Data.length * 3) / 4;
-    if (estimatedSize > MAX_SIZE) {
-      return NextResponse.json(
-        { error: "File too large. Please use a file under 10MB." },
         { status: 400 }
       );
     }
@@ -113,8 +139,7 @@ export async function POST(req: NextRequest) {
 
     if (pdfPageCount && pdfPageCount > 1) {
       try {
-        const { splitPdfPages: split } = await import("@/lib/pdf-split");
-        const pages = await split(Buffer.from(base64Data, "base64"));
+        const pages = await splitPdfPages(Buffer.from(base64Data, "base64"));
         if (pages.length > 0) {
           classifyMime = "application/pdf";
           classifyData = pages[0]!.toString("base64");
@@ -154,7 +179,7 @@ export async function POST(req: NextRequest) {
     function parseExtractJson(text: string): { fields: Record<string, string>; table?: string[][] } {
       try {
         const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-        const jsonStr = jsonMatch ? jsonMatch[1].trim() : text.trim();
+        const jsonStr = jsonMatch ? jsonMatch[1]!.trim() : text.trim();
         const obj = JSON.parse(jsonStr);
         return { fields: obj.fields ?? {}, table: obj.table };
       } catch {
@@ -278,5 +303,9 @@ export async function POST(req: NextRequest) {
     const message =
       error instanceof Error ? error.message : "Unknown error occurred";
     return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    if (blobUrl) {
+      del(blobUrl).catch((e) => console.warn("[extract] blob cleanup failed", e));
+    }
   }
 }

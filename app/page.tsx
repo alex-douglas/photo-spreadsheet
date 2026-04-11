@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { upload as blobUpload } from "@vercel/blob/client";
 
 import { SeoFaqSection } from "@/components/seo-faq-section";
 import { SiteShell } from "@/components/site-shell";
@@ -97,11 +98,17 @@ export default function HomePage() {
       for (let i = 0; i < items.length; i++) {
         const item = items[i]!;
         const cost = creditCostForItem(item);
+
+        const blob = await blobUpload(item.fileName, item.file, {
+          access: "public",
+          handleUploadUrl: "/api/upload",
+        });
+
         const res = await fetch("/api/extract", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            image: item.dataUrl,
+            blobUrl: blob.url,
             deviceId,
             linkedEmail,
           }),

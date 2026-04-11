@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { upload as blobUpload } from "@vercel/blob/client";
 import { FileText, Plus, Upload, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -17,10 +18,15 @@ const TILE_H = "h-44 sm:h-48";
 
 export interface StagedUploadItem {
   id: string;
+  /** Small data URL for image thumbnails; empty string for PDFs. */
   dataUrl: string;
+  /** Raw File reference for uploading to blob storage. */
+  file: File;
   isPdf: boolean;
   pageCount: number | null;
   fileName: string;
+  /** Populated after blob upload, before extraction. */
+  blobUrl?: string;
 }
 
 interface UploadZoneProps {
@@ -40,15 +46,12 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-async function fetchPdfPageCount(dataUrl: string): Promise<number> {
+async function getPdfPageCountClient(file: File): Promise<number> {
   try {
-    const res = await fetch("/api/pdf-pages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dataUrl }),
-    });
-    const d = (await res.json()) as { pageCount?: number };
-    return typeof d.pageCount === "number" ? d.pageCount : 1;
+    const { PDFDocument } = await import("pdf-lib");
+    const buf = await file.arrayBuffer();
+    const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+    return doc.getPageCount();
   } catch {
     return 1;
   }
@@ -110,17 +113,18 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
       if (room <= 0) return;
 
       const built: StagedUploadItem[] = [];
-      for (const file of valid.slice(0, room)) {
-        const dataUrl = await readFileAsDataUrl(file);
-        const name = file.name.toLowerCase();
-        const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
-        const pageCount = isPdf ? await fetchPdfPageCount(dataUrl) : null;
+      for (const f of valid.slice(0, room)) {
+        const name = f.name.toLowerCase();
+        const isPdf = f.type === "application/pdf" || name.endsWith(".pdf");
+        const dataUrl = isPdf ? "" : await readFileAsDataUrl(f);
+        const pageCount = isPdf ? await getPdfPageCountClient(f) : null;
         built.push({
           id: generateId("f"),
           dataUrl,
+          file: f,
           isPdf,
           pageCount,
-          fileName: file.name || (isPdf ? "document.pdf" : "image"),
+          fileName: f.name || (isPdf ? "document.pdf" : "image"),
         });
       }
       if (built.length) {
