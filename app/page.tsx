@@ -104,6 +104,7 @@ export default function HomePage() {
           const blob = await blobUpload(item.fileName, item.file, {
             access: "public",
             handleUploadUrl: "/api/upload",
+            addRandomSuffix: true,
           });
           blobUrlToUse = blob.url;
         } catch (uploadErr) {
