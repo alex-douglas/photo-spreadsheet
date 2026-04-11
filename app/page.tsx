@@ -122,7 +122,8 @@ export default function HomePage() {
           }),
         });
 
-        let data: Record<string, unknown>;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let data: any;
         const contentType = res.headers.get("content-type") ?? "";
         if (!contentType.includes("application/json")) {
           const text = await res.text();
@@ -143,7 +144,7 @@ export default function HomePage() {
         }
 
         if (!res.ok) {
-          throw new Error(data.error || `Extraction failed for “${item.fileName}”`);
+          throw new Error(String(data.error || `Extraction failed for "${item.fileName}"`));
         }
 
         applyExtractResult({
