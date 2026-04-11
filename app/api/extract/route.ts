@@ -305,6 +305,8 @@ export async function POST(req: NextRequest) {
     console.error("Extraction error:", error);
     const message =
       error instanceof Error ? error.message : "Unknown error occurred";
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error("[extract] stack:", stack);
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {
     if (blobUrl) {

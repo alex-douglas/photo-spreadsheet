@@ -122,14 +122,17 @@ export default function HomePage() {
           }),
         });
 
+        let data: Record<string, unknown>;
         const contentType = res.headers.get("content-type") ?? "";
         if (!contentType.includes("application/json")) {
+          const text = await res.text();
+          console.error("[extract] non-JSON response", res.status, text.slice(0, 500));
           throw new Error(
             `Server error (${res.status}) processing "${item.fileName}". Please try again.`
           );
+        } else {
+          data = await res.json();
         }
-
-        const data = await res.json();
 
         if (res.status === 402) {
           openBuyCredits(
