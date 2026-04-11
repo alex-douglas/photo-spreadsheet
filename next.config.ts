@@ -20,7 +20,7 @@ const allowedDevOrigins = [
 const nextConfig: NextConfig = {
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
   /** Native/pdfjs deps break when bundled into Route Handlers on some setups. */
-  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "pdf-lib", "@napi-rs/canvas"],
+  serverExternalPackages: ["pdfjs-dist", "pdf-lib", "@napi-rs/canvas"],
 };
 
 export default nextConfig;
