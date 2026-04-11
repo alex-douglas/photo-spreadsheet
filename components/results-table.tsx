@@ -84,17 +84,35 @@ function TableBlock({
 }) {
   if (table.length === 0) return null;
   const bodyRows = table.length > 1 ? table.slice(1) : [];
+
+  const colWidths = useMemo(() => {
+    const headers = table[0] ?? [];
+    return headers.map((header, ci) => {
+      let longest = header.length;
+      for (const row of bodyRows) {
+        const len = (row[ci] ?? "").length;
+        if (len > longest) longest = len;
+      }
+      const ch = Math.max(6, Math.min(longest + 2, 40));
+      return `${ch}ch`;
+    });
+  }, [table, bodyRows]);
+
   return (
     <Card className="gap-0 py-0 ring-border">
       <CardHeader className="border-b border-border px-4 py-3">
         <CardTitle className="text-sm font-semibold">Line items</CardTitle>
       </CardHeader>
-      <CardContent className="px-0 pb-0 pt-0">
+      <CardContent className="overflow-x-auto px-0 pb-0 pt-0">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               {table[0]?.map((header, i) => (
-                <TableHead key={i} className="px-4 font-semibold">
+                <TableHead
+                  key={i}
+                  className="px-4 font-semibold whitespace-nowrap"
+                  style={{ minWidth: colWidths[i] }}
+                >
                   {header}
                 </TableHead>
               ))}
@@ -104,11 +122,16 @@ function TableBlock({
             {bodyRows.map((row, ri) => (
               <TableRow key={ri}>
                 {row.map((cell, ci) => (
-                  <TableCell key={ci} className="whitespace-normal px-4 py-2">
-                    <Input
+                  <TableCell
+                    key={ci}
+                    className="px-4 py-2"
+                    style={{ minWidth: colWidths[ci], maxWidth: "20rem" }}
+                  >
+                    <textarea
                       value={cell}
                       onChange={(e) => onUpdateCell(ri + 1, ci, e.target.value)}
-                      className="h-8 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent"
+                      rows={Math.max(1, Math.ceil(cell.length / 36))}
+                      className="w-full resize-none border-0 bg-transparent px-1 text-sm shadow-none outline-none focus-visible:ring-0 dark:bg-transparent"
                     />
                   </TableCell>
                 ))}

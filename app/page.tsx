@@ -67,8 +67,7 @@ function creditCostForItem(item: StagedUploadItem): number {
 }
 
 function docLabelFromFileName(fileName: string): string {
-  const base = fileName.replace(/\.[^/.]+$/, "").trim();
-  return (base.length > 0 ? base : fileName).slice(0, 80);
+  return fileName.trim().slice(0, 120) || "Untitled";
 }
 
 export default function HomePage() {
