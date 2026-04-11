@@ -26,6 +26,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return {
           allowedContentTypes: ALLOWED_TYPES,
           maximumSizeInBytes: MAX_SIZE,
+          addRandomSuffix: true,
         };
       },
       onUploadCompleted: async () => {
