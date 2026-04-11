@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { del } from "@vercel/blob";
 import { getGemini } from "@/lib/gemini";
 import { getPdfPageCount } from "@/lib/pdf-page-count";
 import {
@@ -305,7 +304,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {
     if (blobUrl) {
-      del(blobUrl).catch((e) => console.warn("[extract] blob cleanup failed", e));
+      import("@vercel/blob")
+        .then(({ del }) => del(blobUrl!))
+        .catch((e) => console.warn("[extract] blob cleanup failed", e));
     }
   }
 }

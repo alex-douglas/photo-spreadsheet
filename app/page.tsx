@@ -99,20 +99,35 @@ export default function HomePage() {
         const item = items[i]!;
         const cost = creditCostForItem(item);
 
-        const blob = await blobUpload(item.fileName, item.file, {
-          access: "public",
-          handleUploadUrl: "/api/upload",
-        });
+        let blobUrlToUse: string;
+        try {
+          const blob = await blobUpload(item.fileName, item.file, {
+            access: "public",
+            handleUploadUrl: "/api/upload",
+          });
+          blobUrlToUse = blob.url;
+        } catch (uploadErr) {
+          throw new Error(
+            `File upload failed for "${item.fileName}": ${uploadErr instanceof Error ? uploadErr.message : "unknown error"}`
+          );
+        }
 
         const res = await fetch("/api/extract", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            blobUrl: blob.url,
+            blobUrl: blobUrlToUse,
             deviceId,
             linkedEmail,
           }),
         });
+
+        const contentType = res.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) {
+          throw new Error(
+            `Server error (${res.status}) processing "${item.fileName}". Please try again.`
+          );
+        }
 
         const data = await res.json();
 
