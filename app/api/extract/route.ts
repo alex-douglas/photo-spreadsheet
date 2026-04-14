@@ -9,7 +9,7 @@ import {
 } from "@/lib/credits-server";
 import {
   CLASSIFICATION_PROMPT,
-  EXTRACTION_PROMPTS,
+  EXTRACTION_PROMPT,
   DocType,
 } from "@/lib/extraction-prompts";
 import { splitPdfPages } from "@/lib/pdf-split";
@@ -191,9 +191,14 @@ export async function POST(req: NextRequest) {
     }
 
     function maskW2Ssn(fields: Record<string, string>) {
-      if (docType !== "w2" || !fields.employee_ssn) return;
-      const ssn = fields.employee_ssn.replace(/\D/g, "");
-      if (ssn.length >= 4) fields.employee_ssn = `***-**-${ssn.slice(-4)}`;
+      if (docType !== "w2") return;
+      for (const key of Object.keys(fields)) {
+        if (!/ssn|social.?security.?n/i.test(key)) continue;
+        const digits = fields[key]!.replace(/\D/g, "");
+        if (digits.length >= 4) {
+          fields[key] = `***-**-${digits.slice(-4)}`;
+        }
+      }
     }
 
     const isMultiPage = Boolean(pdfPageCount && pdfPageCount > 1);
@@ -207,7 +212,7 @@ export async function POST(req: NextRequest) {
       console.info(`[extract] split PDF into ${singlePagePdfs.length} single-page PDFs`);
 
       pageSlices = [];
-      const prompt = EXTRACTION_PROMPTS[docType];
+      const prompt = EXTRACTION_PROMPT;
 
       for (let i = 0; i < singlePagePdfs.length; i++) {
         const pageB64 = singlePagePdfs[i]!.toString("base64");
@@ -238,7 +243,7 @@ export async function POST(req: NextRequest) {
           {
             role: "user",
             parts: [
-              { text: EXTRACTION_PROMPTS[docType] },
+              { text: EXTRACTION_PROMPT },
               { inlineData: { mimeType, data: base64Data } },
             ],
           },

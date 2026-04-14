@@ -11,121 +11,28 @@ If the document is clearly a U.S. W-2 (even a photo of a printed W-2), you MUST 
 
 export type DocType = "w2" | "receipt" | "invoice" | "business_card" | "table" | "other";
 
-const W2_PROMPT = `Extract all data from this W2 tax form. Return valid JSON with this structure:
-{
-  "fields": {
-    "employee_name": "",
-    "employee_address": "",
-    "employee_ssn": "",
-    "employer_name": "",
-    "employer_address": "",
-    "employer_ein": "",
-    "wages_tips_compensation": "",
-    "federal_income_tax_withheld": "",
-    "social_security_wages": "",
-    "social_security_tax_withheld": "",
-    "medicare_wages": "",
-    "medicare_tax_withheld": "",
-    "state": "",
-    "state_wages": "",
-    "state_income_tax": "",
-    "tax_year": ""
-  }
-}
-Extract every value you can read. Use empty string for unreadable fields. Return ONLY the JSON.`;
+export const EXTRACTION_PROMPT = `Extract ALL structured data visible on this page. You decide which fields and columns are appropriate based on what you actually see — do not force a predetermined schema.
 
-const RECEIPT_PROMPT = `Extract all data from this receipt. Return valid JSON with this structure:
+Return valid JSON with this structure:
 {
   "fields": {
-    "store_name": "",
-    "store_address": "",
-    "date": "",
-    "subtotal": "",
-    "tax": "",
-    "total": "",
-    "payment_method": "",
-    "last_four_digits": ""
+    "descriptive_field_name": "value",
+    ...
   },
   "table": [
-    ["Item", "Qty", "Price"],
-    ["item name", "1", "$0.00"]
+    ["Column1", "Column2", ...],
+    ["row data", "row data", ...]
   ]
 }
-Include all line items in the table. Use empty string for unreadable fields. Return ONLY the JSON.`;
 
-const INVOICE_PROMPT = `Extract all data from this invoice. Return valid JSON with this structure:
-{
-  "fields": {
-    "vendor_name": "",
-    "vendor_address": "",
-    "invoice_number": "",
-    "invoice_date": "",
-    "due_date": "",
-    "bill_to": "",
-    "subtotal": "",
-    "tax": "",
-    "total": "",
-    "payment_terms": ""
-  },
-  "table": [
-    ["Description", "Qty", "Unit Price", "Amount"],
-    ["item", "1", "$0.00", "$0.00"]
-  ]
-}
-Include all line items. Return ONLY the JSON.`;
-
-const BUSINESS_CARD_PROMPT = `Extract all data from this business card. Return valid JSON with this structure:
-{
-  "fields": {
-    "name": "",
-    "title": "",
-    "company": "",
-    "email": "",
-    "phone": "",
-    "mobile": "",
-    "fax": "",
-    "address": "",
-    "website": "",
-    "linkedin": ""
-  }
-}
-Extract every value you can read. Use empty string for missing fields. Return ONLY the JSON.`;
-
-const TABLE_PROMPT = `Extract the table data from this image. Return valid JSON with this structure:
-{
-  "fields": {
-    "title": "",
-    "description": ""
-  },
-  "table": [
-    ["Column1", "Column2", "Column3"],
-    ["data", "data", "data"]
-  ]
-}
-The first row of the table should be headers. Include ALL rows and columns. Return ONLY the JSON.`;
-
-const OTHER_PROMPT = `Extract all structured data from this document. Return valid JSON with this structure:
-{
-  "fields": {
-    "document_type": "",
-    "key_field_1": "value",
-    "key_field_2": "value"
-  },
-  "table": [
-    ["Field", "Value"],
-    ["field name", "field value"]
-  ]
-}
-Identify the document type and extract every piece of data you can find. Use descriptive field names. Return ONLY the JSON.`;
-
-export const EXTRACTION_PROMPTS: Record<DocType, string> = {
-  w2: W2_PROMPT,
-  receipt: RECEIPT_PROMPT,
-  invoice: INVOICE_PROMPT,
-  business_card: BUSINESS_CARD_PROMPT,
-  table: TABLE_PROMPT,
-  other: OTHER_PROMPT,
-};
+Rules:
+- "fields" should contain key-value pairs for any standalone data points (names, dates, totals, IDs, addresses, etc.). Use descriptive snake_case keys.
+- "table" should contain tabular/repeating data if present. The first row must be column headers. Include ALL rows and columns you can read.
+- If there is no tabular data, omit the "table" key entirely.
+- If there are no standalone fields, the "fields" object can be empty.
+- Extract EVERY piece of data you can read. Do not skip or summarize.
+- Use empty string "" for values you can see a label for but cannot read.
+- Return ONLY the JSON, no explanation or markdown fences.`;
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   w2: "W-2 Tax Form",

@@ -57,6 +57,11 @@ async function getPdfPageCountClient(file: File): Promise<number> {
   }
 }
 
+export function creditCostForItem(item: StagedUploadItem): number {
+  if (item.isPdf) return Math.max(1, item.pageCount ?? 1);
+  return 1;
+}
+
 function isAllowedFile(file: File): boolean {
   const name = file.name.toLowerCase();
   const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
@@ -312,46 +317,53 @@ export function UploadZone({ onAnalyzeItems, disabled, onStagedChange }: UploadZ
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            {staged.map((item) => (
-              <div
-                key={item.id}
-                className={cn(
-                  TILE_W,
-                  TILE_H,
-                  "relative shrink-0 overflow-hidden rounded-xl border border-border bg-muted/30"
-                )}
-              >
-                {item.isPdf ? (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3">
-                    <FileText className="size-12 text-muted-foreground" strokeWidth={1.25} aria-hidden />
-                    <span className="line-clamp-2 px-1 text-center text-[0.65rem] font-medium leading-tight text-muted-foreground">
-                      {item.fileName}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="relative h-full w-full">
-                    <Image
-                      src={item.dataUrl}
-                      alt={item.fileName}
-                      fill
-                      className="object-contain object-center"
-                      unoptimized
-                      sizes="160px"
-                    />
-                  </div>
-                )}
-                {!disabled && (
-                  <button
-                    type="button"
-                    className="absolute right-2 top-2 flex size-7 cursor-pointer items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-destructive/10 hover:text-destructive"
-                    aria-label={`Remove ${item.fileName}`}
-                    onClick={() => removeStaged(item.id)}
+            {staged.map((item) => {
+              const cost = creditCostForItem(item);
+              return (
+                <div key={item.id} className="flex shrink-0 flex-col items-center gap-1">
+                  <div
+                    className={cn(
+                      TILE_W,
+                      TILE_H,
+                      "relative overflow-hidden rounded-xl border border-border bg-muted/30"
+                    )}
                   >
-                    <X className="size-3.5" strokeWidth={2.5} />
-                  </button>
-                )}
-              </div>
-            ))}
+                    {item.isPdf ? (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3">
+                        <FileText className="size-12 text-muted-foreground" strokeWidth={1.25} aria-hidden />
+                        <span className="line-clamp-2 px-1 text-center text-[0.65rem] font-medium leading-tight text-muted-foreground">
+                          {item.fileName}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="relative h-full w-full">
+                        <Image
+                          src={item.dataUrl}
+                          alt={item.fileName}
+                          fill
+                          className="object-contain object-center"
+                          unoptimized
+                          sizes="160px"
+                        />
+                      </div>
+                    )}
+                    {!disabled && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-2 flex size-7 cursor-pointer items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        aria-label={`Remove ${item.fileName}`}
+                        onClick={() => removeStaged(item.id)}
+                      >
+                        <X className="size-3.5" strokeWidth={2.5} />
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-[0.65rem] text-muted-foreground">
+                    {cost} {cost === 1 ? "credit" : "credits"}
+                  </span>
+                </div>
+              );
+            })}
 
             {staged.length < MAX_STAGED && (
               <button

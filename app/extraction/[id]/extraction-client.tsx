@@ -107,7 +107,7 @@ export default function ExtractionClient({ id }: { id: string }) {
                 ? `This run used ${entry.meta.pdfPageCount} pages and charged ${entry.meta.creditCost ?? entry.meta.pdfPageCount} credits. `
                 : ""}
               {entry.pages && entry.pages.length > 1
-                ? "Results are split by page below; exports include every page."
+                ? "Results are split by page below."
                 : "Full document text was sent to the model for extraction."}
             </AlertDescription>
           </Alert>

@@ -6,7 +6,7 @@ import { upload as blobUpload } from "@vercel/blob/client";
 
 import { SeoFaqSection } from "@/components/seo-faq-section";
 import { SiteShell } from "@/components/site-shell";
-import { UploadZone, type StagedUploadItem } from "@/components/upload-zone";
+import { UploadZone, creditCostForItem, type StagedUploadItem } from "@/components/upload-zone";
 import { Processing } from "@/components/processing";
 import { useCredits } from "@/components/credits-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -60,11 +60,6 @@ const jsonLd = {
   description:
     "An AI-powered web app that converts images, photos, and PDFs into editable spreadsheet data and CSV files. Ideal for receipts, tables, W-2s, and invoices.",
 } as const;
-
-function creditCostForItem(item: StagedUploadItem): number {
-  if (item.isPdf) return Math.max(1, item.pageCount ?? 1);
-  return 1;
-}
 
 function docLabelFromFileName(fileName: string): string {
   return fileName.trim().slice(0, 120) || "Untitled";
